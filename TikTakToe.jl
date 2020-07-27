@@ -4,12 +4,28 @@ import Base.display
 abstract type Environment end
 
 mutable struct TikTakToe <: Environment
-    current::Array{Int}
+    current::Vector{Int}
+    n_states::Int
+    n_actions::Int
     function TikTakToe()
         this = new()
         this.current = fill(0, 9)
+        this.n_states = 3^9
+        this.n_actions = 9
         return this
     end
+end
+
+# TODO:  makro
+function s_a_to_index(env::Environment, state::Vector{Int}, action::Int)::Int
+    branching_factor = 3
+    scalar = 9
+    index = action
+    for s in state
+        index += s * scalar
+        scalar *= branching_factor
+    end
+    return index
 end
 
 function print_current(env::TikTakToe)
@@ -24,12 +40,16 @@ function print_current(env::TikTakToe)
     println()
 end
 
-function valid_actions(state::Array{Int})::Array{Int}
+function valid_actions(env::TikTakToe, state::Vector{Int})::Vector{Int}
     return findall(state .== 0)
 end
 
-function valid_actions(env::TikTakToe)::Array{Int}
+function valid_actions(env::TikTakToe)::Vector{Int}
     return valid_actions(env.current)
+end
+
+function reset!(env::TikTakToe)
+    env.current .= 0
 end
 
 function allsame(A::SubArray{Int})
@@ -42,7 +62,7 @@ function allsame(A::SubArray{Int})
     return true
 end
 
-function won(state::Array{Int})::Int
+function won(state::Vector{Int})::Int
     col = [1,2,3]
     row = [1,4,7]
     diag1 = [1,5,9]
@@ -87,18 +107,16 @@ function step!(env::TikTakToe, action::Int, foe::Bool)::Tuple{Float32, Bool, Boo
 end
 
 
-env = TikTakToe()‚
+env = TikTakToe()
 
 print_current(env)
-step!(env, 5, 1)
+step!(env, 5, false)
 print_current(env)
-step!(env, 9, 2)
+step!(env, 9, true)
 print_current(env)
-step!(env, 4, 1)
+step!(env, 4, false)
 print_current(env)
-step!(env, 8, 2)
+step!(env, 8, true)
 print_current(env)
-step!(env, 6, 1)
+step!(env, 6, false)
 print_current(env)
-
-sizeof(Dict{Array{Int}, Float32})
