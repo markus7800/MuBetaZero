@@ -17,7 +17,7 @@ mutable struct TikTakToe <: Environment
 end
 
 # TODO:  makro
-function s_a_to_index(env::Environment, state::Vector{Int}, action::Int)::Int
+function s_a_to_index(env::Environment, state::Vector{Int}, action::Int, player::Int)::Int
     branching_factor = 3
     scalar = 9
     index = action
@@ -25,6 +25,7 @@ function s_a_to_index(env::Environment, state::Vector{Int}, action::Int)::Int
         index += s * scalar
         scalar *= branching_factor
     end
+    index += scalar * (player - 1)
     return index
 end
 
@@ -93,34 +94,38 @@ function won(state::Vector{Int})::Int
 end
 
 
-function step!(env::TikTakToe, action::Int, foe::Bool)::Tuple{Float32, Bool, Bool}
-    player = foe+1 # me ... 1, foe ... 2
+function step!(env::TikTakToe, action::Int, player::Int, foe::Bool)::Tuple{Float32, Bool, Int}
     env.current[action] = player
     p = won(env.current)
 
-    if p == 1
-        return 1f0, true, !foe # won
-    elseif p == 2
-        return -1f0, true, !foe # lost
+    next_player = player == 1 ? 2 : 1
+
+    if p != 0 && !foe
+        @assert p == player
+        return 1f0, true, next_player # won
+    elseif p != 0 && foe
+        @assert p == player
+        return -1f0, true, next_player # lost
     end
     if isempty(valid_actions(env))
-        return 0f0, true, !foe # draw
+        return 0f0, true, next_player # draw
     else
-        return 0f0, false, !foe
+        return 0f0, false, next_player
     end
+
 end
 
 
 env = TikTakToe()
 
 println_current(env)
-step!(env, 5, false)
+step!(env, 5, 1)
 println_current(env)
-step!(env, 9, true)
+step!(env, 9, 2)
 println_current(env)
-step!(env, 4, false)
+step!(env, 4, 1)
 println_current(env)
-step!(env, 8, true)
+step!(env, 8, 2)
 println_current(env)
-step!(env, 6, false)
+step!(env, 6, 1)
 println_current(env)
