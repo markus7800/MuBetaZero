@@ -37,15 +37,19 @@ function print_current(env::TikTakToe)
         end
         print("\n")
     end
+end
+
+function println_current(env::TikTakToe)
+    print_current(env)
     println()
 end
 
-function valid_actions(env::TikTakToe, state::Vector{Int})::Vector{Int}
-    return findall(state .== 0)
+function valid_actions(env::TikTakToe, state::Vector{Int})::Base.Iterators.Filter
+    return Base.Iterators.filter(a -> state[a] == 0, 1:env.n_actions)# findall(state .== 0)
 end
 
-function valid_actions(env::TikTakToe)::Vector{Int}
-    return valid_actions(env.current)
+function valid_actions(env::TikTakToe)::Base.Iterators.Filter
+    return valid_actions(env, env.current)
 end
 
 function reset!(env::TikTakToe)
@@ -99,7 +103,7 @@ function step!(env::TikTakToe, action::Int, foe::Bool)::Tuple{Float32, Bool, Boo
     elseif p == 2
         return -1f0, true, !foe # lost
     end
-    if length(valid_actions(env)) == 0
+    if isempty(valid_actions(env))
         return 0f0, true, !foe # draw
     else
         return 0f0, false, !foe
@@ -109,14 +113,14 @@ end
 
 env = TikTakToe()
 
-print_current(env)
+println_current(env)
 step!(env, 5, false)
-print_current(env)
+println_current(env)
 step!(env, 9, true)
-print_current(env)
+println_current(env)
 step!(env, 4, false)
-print_current(env)
+println_current(env)
 step!(env, 8, true)
-print_current(env)
+println_current(env)
 step!(env, 6, false)
-print_current(env)
+println_current(env)

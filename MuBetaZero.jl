@@ -1,3 +1,5 @@
+import ProgressMeter
+
 include("Tree.jl")
 include("utils.jl")
 include("TikTakToe.jl")
@@ -24,59 +26,79 @@ mutable struct MuBetaZeroTabular <: MuBetaZero
     end
 end
 
-function greedy_action(μβ0::MuBetaZeroTabular, env::Environment, state::Vector{Int})
+function greedy_action(μβ0::MuBetaZeroTabular, env::Environment, state::Vector{Int})::Tuple{Int, Float32}
     i = s_a_to_index(env, state, 0)
     is = [i + j for j in 1:env.n_actions] # TODO: assertion
     a, Q = maximise(a -> μβ0.Q[is[a]], valid_actions(env, state))
     return a, Q
 end
 
-# TODO: split from update
-function play!(μβ0::MuBetaZeroTabular, env::Environment, adversary::MuBetaZeroTabular)
-    s = env.current
+function V(μβ0::MuBetaZeroTabular, env::Environment, state::Vector{Int})
+    a, Q = greedy_action(μβ0, env, state)::Float32
+    return Q
+end
 
-    if rand() ≤ μβ0.ϵ
-        a = rand(valid_actions(env, s))
+function play!(μβ0::MuBetaZeroTabular, env::Environment, adversary::MuBetaZeroTabular;
+               ϵ_greedy=false)::Tuple{Vector{Int}, Vector{Int}, Float32, Bool}
+    # s .= env.current
+    s = copy(env.current)
+    if ϵ_greedy && rand() ≤ μβ0.ϵ
+        a = rand(collect(valid_actions(env, s)))
     else
         a, = greedy_action(μβ0, env, s) # TODO: MCTS
     end
 
-    i = s_a_to_index(env, s, a)
-
-    print_current(env)
     r1, done, = step!(env, a, false)
-    print_current(env)
     r2 = 0f0
     if !done
         a_adv, = greedy_action(adversary, env, env.current)
         r2, done = step!(env, a_adv, true)
-        print_current(env)
     end
     r = r1 + r2
+    # ns .= env.current
+    ns = copy(env.current)
 
+    return s, a, r, done, ns
+end
+
+function update!(μβ0::MuBetaZeroTabular, env::Environment,
+                 s::Vector{Int}, a::Int, r::Float32, done::Bool, ns::Vector{Int})
     α = μβ0.α; γ = μβ0.γ
-    println(r, ", ", done)
 
+    i = s_a_to_index(env, s, a)
     if !done
-        a_star, Q_star = greedy_action(μβ0, env, env.current)
+        a_star, Q_star = greedy_action(μβ0, env, ns)
     else
         Q_star = 0f0
     end
-
-    # μβ0.Q[i] = (1 - α) * μβ0.Q[i] + α * (r + γ * Q_star)
-
-    return done
+    μβ0.Q[i] = (1 - α) * μβ0.Q[i] + α * (r + γ * Q_star)
 end
 
-function play_game!(μβ0::MuBetaZeroTabular, env::Environment, adversary::MuBetaZeroTabular)
+function play_game!(μβ0::MuBetaZeroTabular, env::Environment, adversary::MuBetaZeroTabular;
+                    verbose=false, train=false)
     reset!(env)
     done = false
+    verbose && print_current(env)
     while !done
-        done = play!(μβ0, env, adversary)
+        s, a, r, done, ns = play!(μβ0, env, adversary, ϵ_greedy=train)
+        if train
+            update!(μβ0, env, s, a, r, done, ns)
+        end
+        if verbose
+            println("r = $r\n")
+            print_current(env)
+            println("v = $(V(μβ0, env, ns))\n")
+        end
     end
 end
 
-# function update!(μβ0::MuBetaZeroTabular, env::Environment, s::Int, a::Int, r::Float32)
+function train!(μβ0::MuBetaZeroTabular, env::Environment, adversary::MuBetaZeroTabular,
+                n_games::Int)
+    for n in 1:n_games
+        play_game!(μβ0, env, adversary, train=true)
+    end
+end
+
 
 # TODO test MCTS without rollout
 function MCTS(μβ0::MuBetaZero, env::Environment, N::Int; expand_at=1)
@@ -159,16 +181,18 @@ function backpropagate!(node::MCTSNode, r::Float32)
     end
 end
 
-env = TikTakToe()
 reset!(env)
 μβ0 = MuBetaZeroTabular(env.n_states, env.n_actions)
 using Random
 Random.seed!(1)
 adv = MuBetaZeroTabular(env.n_states, env.n_actions, init=:random)
+play_game!(μβ0, env, adv, verbose=true)
 
 greedy_action(μβ0, env, env.current)
 
-play_game!(μβ0, env, adv)
+using BenchmarkTools
+
+play_game!(μβ0, env, adv, verbose=true)
 
 A = [
  0 0 2;
@@ -180,3 +204,18 @@ env.current = reshape(A, :)
 print_current(env)
 
 MCTS(μβ0, env, 1_000_000)
+
+env = TikTakToe()
+μβ0 = MuBetaZeroTabular(env.n_states, env.n_actions)
+using Random
+Random.seed!(1)
+adv = MuBetaZeroTabular(env.n_states, env.n_actions, init=:random)
+@btime train!(μβ0, env, adv, 1_000)
+
+println(μβ0.Q[1:9])
+
+play_game!(μβ0, env, adv, verbose=true, train=false)
+
+using Profile
+
+@profiler train!(μβ0, env, adv, 1_000)
