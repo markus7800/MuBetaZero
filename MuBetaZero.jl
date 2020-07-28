@@ -11,6 +11,7 @@ mutable struct MuBetaZeroTabular <: MuBetaZero
     γ::Float32
     α::Float32
     ϵ::Float64
+    tree::MCTSTree
 
     function MuBetaZeroTabular(n_states, n_actions; γ=0.99, α=0.1, ϵ=0.1, init=:zero)
         this = new()
@@ -26,39 +27,40 @@ mutable struct MuBetaZeroTabular <: MuBetaZero
     end
 end
 
-function greedy_action(μβ0::MuBetaZeroTabular, env::Environment, state::Vector{Int}, player::Int)::Tuple{Int, Float32}
+function action(μβ0::MuBetaZeroTabular, env::Environment, state::Vector{Int}, player::Int)::Int
     i = s_a_to_index(env, state, 0, player)
     is = [i + j for j in 1:env.n_actions] # TODO: assertion
     a, Q = maximise(a -> μβ0.Q[is[a]], valid_actions(env, state))
-    return a, Q
+    return a
 end
 
-function V(μβ0::MuBetaZeroTabular, env::Environment, state::Vector{Int}, player::Int)::Float32
-    a, Q = greedy_action(μβ0, env, state, player)
+function value(μβ0::MuBetaZeroTabular, env::Environment, state::Vector{Int}, player::Int)::Float32
+    i = s_a_to_index(env, state, 0, player)
+    is = [i + j for j in 1:env.n_actions] # TODO: assertion, make range
+    a, Q = maximise(a -> μβ0.Q[is[a]], valid_actions(env, state))
     return Q
 end
 
-function Q(μβ0::MuBetaZeroTabular, env::Environment, state::Vector{Int}, player::Int)::Vector{Float32}
-    i = s_a_to_index(env, state, 0, player)
-    is = [i + j for j in 1:env.n_actions]
-    return μβ0.Q[is]
-end
 
 function play!(μβ0::MuBetaZeroTabular, env::Environment, adversary::MuBetaZeroTabular,
-               player::Int; ϵ_greedy=false)::Tuple{Vector{Int}, Int, Float32, Bool, Vector{Int}}
+               player::Int; ϵ_greedy=false, MCTS=false)::Tuple{Vector{Int}, Int, Float32, Bool, Vector{Int}}
     # s .= env.current
     s = copy(env.current)
     if ϵ_greedy && rand() ≤ μβ0.ϵ
         a = rand(collect(valid_actions(env, s)))
     else
-        a, = greedy_action(μβ0, env, s, player) # TODO: MCTS
+        if MCTS
+            a = MCTreeSearch(μβ0, env, 1000)
+        else
+            a = action(μβ0, env, s, player) # greedy action
+        end
     end
 
     r1, done, = step!(env, a, player, false)
     r2 = 0f0
     if !done
         player_adv = player == 1 ? 2 : 1
-        a_adv, = greedy_action(adversary, env, env.current, player_adv)
+        a_adv = action(adversary, env, env.current, player_adv)
         r2, done = step!(env, a_adv, player_adv, true)
     end
     r = r1 + r2
@@ -74,7 +76,8 @@ function update!(μβ0::MuBetaZeroTabular, env::Environment, player::Int,
 
     i = s_a_to_index(env, s, a, player)
     if !done
-        a_star, Q_star = greedy_action(μβ0, env, ns, player)
+        a_star = action(μβ0, env, ns, player)
+        Q_star = value(μβ0, env, ns, player)
     else
         Q_star = 0f0
     end
@@ -82,31 +85,35 @@ function update!(μβ0::MuBetaZeroTabular, env::Environment, player::Int,
 end
 
 function play_game!(μβ0::MuBetaZeroTabular, env::Environment, adversary::MuBetaZeroTabular;
-                    verbose=false, train=false, start=true)
+                    verbose=false, train=false, start=true, MCTS=false)
     reset!(env)
+    # if MCTS
+    #     μβ0.tree = MCTSTree(MCTSNode())
+    # end
+    #
     r = 0
     done = false
     player = start ? 1 : 2
     player_adv = start ? 2 : 1
     if !start
-        a_adv, = greedy_action(adversary, env, env.current, player_adv)
+        a_adv = action(adversary, env, env.current, player_adv)
         step!(env, a_adv, player_adv, true)
     end
     if verbose
         print_current(env)
-        println("v_agent = $(Q(μβ0, env, env.current, player))")
-        println("v_adversary = $(Q(adversary, env, env.current, player_adv))\n")
+        println("v_agent = $(value(μβ0, env, env.current, player))")
+        println("v_adversary = $(value(adversary, env, env.current, player_adv))\n")
     end
     while !done
-        s, a, r, done, ns = play!(μβ0, env, adversary, player, ϵ_greedy=train)
+        s, a, r, done, ns = play!(μβ0, env, adversary, player, ϵ_greedy=train, MCTS=MCTS)
         if train
             update!(μβ0, env, player, s, a, r, done, ns)
         end
         if verbose
             println("r = $r\n")
             print_current(env)
-            !done && println("v_agent = $(Q(μβ0, env, ns, player))")
-            !done && println("v_adversary = $(Q(adversary, env, ns, player_adv))\n")
+            !done && println("v_agent = $(value(μβ0, env, ns, player))")
+            !done && println("v_adversary = $(value(adversary, env, ns, player_adv))\n")
         end
     end
 
@@ -114,7 +121,8 @@ function play_game!(μβ0::MuBetaZeroTabular, env::Environment, adversary::MuBet
 end
 
 function train!(μβ0::MuBetaZeroTabular, env::Environment, adversary::MuBetaZeroTabular,
-                min_n_games::Int=10^4, max_n_games::Int=10^7, success_threshold::Float64=0.55)
+                min_n_games::Int=10^4, max_n_games::Int=10^7, success_threshold::Float64=0.55,
+                MCTS=false)
 
     losses = 0
     n_games = 0
@@ -123,7 +131,7 @@ function train!(μβ0::MuBetaZeroTabular, env::Environment, adversary::MuBetaZer
 
         n_games += 1
         start = n_games % 2 == 0
-        r = play_game!(μβ0, env, adversary, train=true, start=start)
+        r = play_game!(μβ0, env, adversary, train=true, start=start, MCTS=MCTS)
         if r < 0
             losses += 1
         end
@@ -144,8 +152,7 @@ function iterate_tabular_agents(env::Environment; γ=0.99f0, ϵ=0.1f0, α=0.01f0
     return agent
 end
 
-# TODO test MCTS without rollout
-function MCTS(μβ0::MuBetaZero, env::Environment, N::Int; expand_at=1)
+function MCTreeSearch(μβ0::MuBetaZero, env::Environment, N::Int, player::Int; expand_at=1)
     state = copy(env.current)
     root = MCTSNode()
     tree = MCTSTree(root)
@@ -153,66 +160,74 @@ function MCTS(μβ0::MuBetaZero, env::Environment, N::Int; expand_at=1)
 
     n = 1
     while n ≤ N
+        if n % 10 == 0
+            print_tree(tree)
+        end
         # println("=== n = $n ===")
         n += 1
         env.current .= state
-        # println("SELECT")
-        best, foe, r, done = select!(env, tree) # best action already applied, foe is next player
+        println("SELECT")
+        best, next_player, foe, r, done = select!(env, tree, player) # best action already applied, foe is next player
         if done
             # println("leaf node selected")
         end
         if !done
             if best.n ≥ expand_at
-                # println("EXPAND")
+                println("EXPAND")
                 expand!(best, env)
                 N += 1 # allow one more rollout
                 continue
             else
-                # println("ROLLOUT")
-                r = rollout!(μβ0, env, foe)
+                println("ROLLOUT")
+                r = rollout!(μβ0, env, next_player, foe)
             end
         end
-        # println("BACKPROPAGATE")
+        println("BACKPROPAGATE $r")
         backpropagate!(best, r)
     end
 
     env.current .= state
 
+    print_tree(tree)
+
     scores = map(c -> c.v/c.n, root.children)
     return root.children[argmax(scores)].action
 end
 
-function select!(env::Environment, tree::MCTSTree)
+function select!(env::Environment, tree::MCTSTree, player::Int)
     current = tree.root
     foe = false
     r = 0.0f0
     done = false
-    # print_env(env)
+    next_player = player
     while length(current.children) != 0
         current = best_child(current, foe)
-        r, done, foe = step!(env, current.action, foe)
-        # println(current.action, ", ", current.v, ", ", current.n)
-        # print_env(env)
+        print(current.action, " -> ")
+        r, done, next_player, foe = step!(env, current.action, next_player, foe)
         if done
             break
         end
     end
-    return current, foe, r, done
+    println("(", done, " - ", r, ")")
+    return current, next_player, foe, r, done
 end
 
 function expand!(node::MCTSNode, env::Environment)
-    for a in valid_actions(env.current)
+    for a in valid_actions(env, env.current)
         push!(node.children, MCTSNode(node, a))
     end
 end
 
-function rollout!(μβ0::MuBetaZero, env::Environment, foe::Bool)
+function rollout!(μβ0::MuBetaZero, env::Environment, nextplayer::Int, foe::Bool)
     r = 0.0f0
     done = false
+
     while !done
-        action = greedy_action(μβ0, env, env.current) # self play
-        r, done = step!(env, action, foe)
+        a = action(μβ0, env, env.current, nextplayer) # self play
+        print(" -> ", a)
+        r, done, nextplayer, foe = step!(env, a, nextplayer, foe)
     end
+    println(" -> ", r)
     return r
 end
 
@@ -232,7 +247,7 @@ function play_against(agent::MuBetaZero, env::Environment, start=true)
     player = start ? 1 : 2
     player_adv = start ? 2 : 1
     if !start
-        a, = greedy_action(agent, env, env.current, player_adv)
+        a = action(agent, env, env.current, player_adv)
         step!(env, a, player_adv, true)
     end
 
@@ -250,7 +265,7 @@ function play_against(agent::MuBetaZero, env::Environment, start=true)
             break
         end
 
-        a, = greedy_action(agent, env, env.current, player_adv)
+        a, = action(agent, env, env.current, player_adv)
         r, done = step!(env, a, player_adv, true)
     end
 
@@ -258,6 +273,13 @@ function play_against(agent::MuBetaZero, env::Environment, start=true)
     println_current(env)
 
     println("Its a ", ["Loss", "Draw", "Win"][Int(r + 2)], "!")
+    println()
+
+    print("Rematch?\n(Y or enter):")
+    ans = readline()
+    if ans in ["y", "Y", "yes", "Yes", ""]
+        play_against(agent, env, !start)
+    end
 end
 
 reset!(env)
@@ -267,61 +289,6 @@ Random.seed!(1)
 adv = MuBetaZeroTabular(env.n_states, env.n_actions, init=:random)
 play_game!(μβ0, env, adv, verbose=true)
 
-s_a_to_index(env, [2,2,2], 9, 2)
-s_a_to_index(env, [0,0,0], 1, 2)
-
-greedy_action(μβ0, env, env.current)
-
-using BenchmarkTools
-
-play_game!(μβ0, env, adv, verbose=true)
-
-A = [
- 0 0 2;
- 0 1 0;
- 0 0 2
-]
-
-env.current = reshape(A, :)
-print_current(env)
-
-MCTS(μβ0, env, 1_000_000)
-
-env = TikTakToe()
-μβ0 = MuBetaZeroTabular(env.n_states, env.n_actions)
-using Random
-Random.seed!(1)
-adv = MuBetaZeroTabular(env.n_states, env.n_actions, init=:random)
-train!(μβ0, env, adv, 10^4)
-
-
-play_game!(μβ0, env, adv, verbose=true, train=false, start=true)
-
-using Profile
-
-@time train!(μβ0, env, adv, 1_000_000, 1.1)
-
-println_current(env)
-
-step!(env, 5, true)
-
-println_current(env)
-
-agent = iterate_tabular_agents(env)
-
-play_against(agent, env, true)
-
-
-env = TikTakToe()
-μβ0 = MuBetaZeroTabular(env.n_states, env.n_actions)
-adv = MuBetaZeroTabular(env.n_states, env.n_actions)
-train!(μβ0, env, adv, 10^4)
-play_game!(μβ0, env, adv, train=false, verbose=true)
-
-adv = μβ0
-μβ0 = MuBetaZeroTabular(env.n_states, env.n_actions)
-train!(μβ0, env, adv, 10^4)
-play_game!(μβ0, env, adv, train=false, verbose=true)
 
 env = TikTakToe()
 agent = MuBetaZeroTabular(env.n_states, env.n_actions)
@@ -329,13 +296,22 @@ train!(agent, env, agent, 10^6)
 play_game!(agent, env, agent, train=false, verbose=true)
 play_game!(agent, env, agent, train=false, verbose=true, start=false)
 
-state = [
- 1 1 0;
- 2 0 0;
- 0 0 0
-]
-state = reshape(state, :)
+play_against(agent, env, false)
 
-Q(agent, env, state, 2)
 
-won(env.current)
+
+
+reset!(env)
+
+env.current = reshape([
+    0 0 2;
+    1 1 2;
+    0 0 0
+],:)
+
+println_current(env)
+
+rollout!(agent, env, 1, false)
+
+Random.seed!(1)
+MCTreeSearch(agent, env, 100, 1)

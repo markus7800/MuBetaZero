@@ -20,15 +20,19 @@ struct MCTSTree
     root::MCTSNode
 end
 
-function USB1(node::MCTSNode)::Float64
-    return node.v / node.n + √(2 * node.parent.n / node.n)
+function UCB1(node::MCTSNode)::Float64
+    if node.n == 0
+        return Inf
+    else
+        return node.v / node.n + √(2 * node.parent.n / node.n)
+    end
 end
 
 function best_child(node::MCTSNode, foe=false)
-    scores = map(USB1, node.children)
+    scores = map(UCB1, node.children)
     if foe
         # best action for foe is our worst action (least wins)
-        return node.children[argmin(scores)]
+        return node.children[argmax(-scores)]
     else
         return node.children[argmax(scores)]
     end
