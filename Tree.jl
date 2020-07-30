@@ -12,7 +12,7 @@ mutable struct MCTSNode
         this = new()
         this.parent = parent
         this.children = []
-        this.v = 0
+        this.w = 0
         this.n = 0
         this.action = action
         this.player = player
@@ -30,18 +30,24 @@ function push!(node::MCTSNode, child::MCTSNode)
 end
 
 # dont know if necessary for garbage collector
-function remove_children!(node::MCTSNode)
+function remove_children!(node::MCTSNode; except::MCTSNode=nothing)
     for child in node.children
-        child.parent = nothing
+        if child != except
+            child.parent = nothing
+        end
     end
-    node.children = []
+    if except != nothing
+        node.children = [except]
+    else
+        node.children = []
+    end
 end
 
 function UCB1(node::MCTSNode)::Float64
     if node.n == 0
         return Inf
     else
-        return node.v / node.n + √(2 * node.parent.n / node.n)
+        return node.w / node.n + √(2 * log(node.parent.n) / node.n)
     end
 end
 
@@ -56,7 +62,7 @@ function best_child(node::MCTSNode)
 end
 
 function str_node(node::MCTSNode)
-    return "p:$(node.player) a:$(node.action) v:$(node.v)/$(node.n)"
+    return "p:$(node.player) a:$(node.action) v:$(node.w)/$(node.n)"
 end
 
 function print_node(node::MCTSNode, tab=""; frt::Function=str_node)
@@ -82,6 +88,6 @@ function print_tree(node::MCTSNode)
     print_node(root, frt=str_node_2)
 end
 
-function v_mean(node::MCTSNode)
-    return node.v / node.n
+function v_mean(node::MCTSNode)::Float32
+    return Float32(node.w) / node.n
 end
