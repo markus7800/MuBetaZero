@@ -94,38 +94,35 @@ function won(state::Vector{Int})::Int
 end
 
 
-function step!(env::TikTakToe, action::Int, player::Int, foe::Bool)::Tuple{Float32, Bool, Int, Bool}
+function step!(env::TikTakToe, action::Int, player::Int)::Tuple{Int, Bool, Int}
     env.current[action] = player
-    p = won(env.current)
+    winner = won(env.current)
 
     next_player = player == 1 ? 2 : 1
 
-    if p != 0 && !foe
-        @assert p == player
-        return 1f0, true, next_player, !foe # won
-    elseif p != 0 && foe
-        @assert p == player
-        return -1f0, true, next_player, !foe # lost
-    end
-    if isempty(valid_actions(env))
-        return 0f0, true, next_player, !foe # draw
-    else
-        return 0f0, false, next_player, !foe
+    if winner != 0
+        @assert winner == player
+        return winner, true, next_player # won
     end
 
+    if isempty(valid_actions(env))
+        return winner, true, next_player # draw
+    else
+        return winner, false, next_player
+    end
 end
 
 
 env = TikTakToe()
 
 println_current(env)
-step!(env, 5, 1, false)
+step!(env, 5, 1)
 println_current(env)
-step!(env, 9, 2, true)
+step!(env, 9, 2)
 println_current(env)
-step!(env, 4, 1, false)
+step!(env, 4, 1)
 println_current(env)
-step!(env, 8, 2, true)
+step!(env, 8, 2)
 println_current(env)
-step!(env, 6, 1, false)
+step!(env, 6, 1)
 println_current(env)
