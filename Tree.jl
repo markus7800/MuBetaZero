@@ -29,6 +29,14 @@ function push!(node::MCTSNode, child::MCTSNode)
     child.parent = node
 end
 
+# dont know if necessary for garbage collector
+function remove_children!(node::MCTSNode)
+    for child in node.children
+        child.parent = nothing
+    end
+    node.children = []
+end
+
 function UCB1(node::MCTSNode)::Float64
     if node.n == 0
         return Inf

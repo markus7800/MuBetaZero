@@ -80,9 +80,9 @@ function play!(μβ0::MuBetaZeroTabular, env::Environment,
             if nextdone
                 # here winner == nextplayer or draw possible
                 @assert winner == 0 || winner == nextplayer
-                Q_est = -Float32(winner == nextplayer) # ∈ {-1, 0}
+                Q_est = μβ0.γ * -Float32(winner == nextplayer) # ∈ {-1, 0}
             else
-                Q_est = value(μβ0, env, env.current, player) # nextstate
+                Q_est = μβ0.γ * value(μβ0, env, env.current, player) # nextstate
             end
             env.current = ns
         end
@@ -301,8 +301,12 @@ play_game!(agent, env, train=false, verbose=true)
 
 play_against(agent, env, true)
 
+import Profile
+Profile.clear()
+@profiler train!(agent, env, 10^3)
 
-
+using BenchmarkTools
+@btime train!(agent, env, 10^3)
 
 reset!(env)
 

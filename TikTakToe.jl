@@ -57,10 +57,10 @@ function reset!(env::TikTakToe)
     env.current .= 0
 end
 
-function allsame(A::SubArray{Int})
-    a_comp = A[1]
-    for a in A
-        if a != a_comp
+function allsame(A::Array{Int}, indeces::Array{Int})
+    a_comp = A[indeces[1]]
+    for i in indeces
+        if A[i] != a_comp
             return false
         end
     end
@@ -74,20 +74,20 @@ function won(state::Vector{Int})::Int
     diag2 = [3,5,7]
     for i in 0:2
         p = state[col[1] + 3*i]
-        if p != 0 && allsame(view(state, col .+ 3*i))
+        if p != 0 && allsame(state, col .+ 3*i)
             return p
         end
         p = state[row[1] + i]
-        if p != 0 && allsame(view(state, row .+ i))
+        if p != 0 && allsame(state, row .+ i)
             return p
         end
     end
     p = state[diag1[1]]
-    if p != 0 && allsame(view(state, diag1))
+    if p != 0 && allsame(state, diag1)
         return p
     end
     p = state[diag2[1]]
-    if p != 0 && allsame(view(state, diag2))
+    if p != 0 && allsame(state, diag2)
         return p
     end
     return 0
