@@ -52,12 +52,12 @@ end
 
 
 function play!(μβ0::MuBetaZero, env::Environment,
-               player::Int; train=false, MCTS=false, N_MCTS=1000)
+               player::Int; train=false, MCTS=false, N_MCTS=1000, MCTS_type=:rollout)
     # s .= env.current
     s = copy(env.current)
     Q_est = 0f0
     if MCTS
-        best_node, Q_est, ps, ps_trunc, Q_ests = MCTreeSearch(μβ0, env, N_MCTS, player) # nextstates already observed here
+        best_node, Q_est, ps, ps_trunc, Q_ests = MCTreeSearch(μβ0, env, N_MCTS, player, type=MCTS_type) # nextstates already observed here
         as = collect(valid_actions(env, s))
         if train
             chosen_node = sample(μβ0.current_node.children, Weights(ps_trunc))
@@ -130,7 +130,7 @@ end
 include("MCTS.jl")
 
 function play_game!(μβ0::MuBetaZeroTabular, env::Environment;
-                    verbose=false, train=false, MCTS=false, N_MCTS=1000)
+                    verbose=false, train=false, MCTS=false, N_MCTS=1000, MCTS_type=:rollout)
     reset!(env)
     if MCTS # reset tree
         reset_tree!(μβ0)
@@ -141,7 +141,7 @@ function play_game!(μβ0::MuBetaZeroTabular, env::Environment;
     player = 1
 
     while !done
-        s, a, Q_est, winner, done, as, Q_ests, player, nextplayer = play!(μβ0, env, player, train=train, MCTS=MCTS, N_MCTS=N_MCTS)
+        s, a, Q_est, winner, done, as, Q_ests, player, nextplayer = play!(μβ0, env, player, train=train, MCTS=MCTS, N_MCTS=N_MCTS, MCTS_type=MCTS_type)
         if train
             if MCTS
                 update!(μβ0, env, player, s, as, Q_ests)
@@ -167,11 +167,11 @@ end
 
 function train!(μβ0::MuBetaZeroTabular, env::Environment,
                 n_games::Int=10^6, success_threshold::Float64=0.55;
-                MCTS=false, N_MCTS=1000)
+                MCTS=false, N_MCTS=1000, MCTS_type=:rollout)
 
     winners = zeros(Int, n_games)
     ProgressMeter.@showprogress for n in 1:n_games
-        winners[n] = play_game!(μβ0, env, train=true, MCTS=MCTS, N_MCTS=N_MCTS)
+        winners[n] = play_game!(μβ0, env, train=true, MCTS=MCTS, N_MCTS=N_MCTS, MCTS_type=MCTS_type)
     end
 
     rs = winners .* 2 .- 3
@@ -180,7 +180,24 @@ function train!(μβ0::MuBetaZeroTabular, env::Environment,
 end
 
 
+function opponent_move(agent::MuBetaZero, env::Environment, player_adv::Int, N_MCTS::Int, thinktime::Float64)
+    tik = time()
+    best, = MCTreeSearch(agent, env, N_MCTS, player_adv)
+    tak = time()
+    n = 1
+    while tak - tik < thinktime
+        best, = MCTreeSearch(agent, env, N_MCTS, player_adv)
+        n += 1
+        tak = time()
+    end
+    a = best.action
+    agent.current_node = best
+    remove_children!(best.parent, except=best)
+    t = round((tak - tik) * 1000) / 1000
+    println("(Did $(n * N_MCTS) simulations in $t s.)")
 
+    return a
+end
 
 function play_against(agent::MuBetaZero, env::Environment;
     start=true, MCTS=false, N_MCTS=1000, thinktime=0.5)
@@ -196,16 +213,7 @@ function play_against(agent::MuBetaZero, env::Environment;
 
     if !start
         if MCTS
-            tik = time()
-            best, = MCTreeSearch(agent, env, N_MCTS, player_adv)
-            tak = time()
-            while tak - tik < thinktime
-                best, = MCTreeSearch(agent, env, N_MCTS, player_adv)
-                tak = time()
-            end
-            a = best.action
-            agent.current_node = best
-            remove_children!(best.parent, except=best)
+            a = opponent_move(agent, env, player_adv, N_MCTS, thinktime)
         else
             a = action(agent, env, env.current, player_adv)
         end
@@ -218,7 +226,7 @@ function play_against(agent::MuBetaZero, env::Environment;
         print("Input action: ")
         a = parse(Int, readline())
         while !(a in collect(valid_actions(env)))
-            print("\nInput valid action:")
+            print("\nInput valid action: ")
             a = parse(Int, readline())
         end
         winner, done, = step!(env, a, player)
@@ -227,6 +235,7 @@ function play_against(agent::MuBetaZero, env::Environment;
         end
 
         if MCTS
+            # track my move in mcts tree
             chosen_node = nothing
             for c in agent.current_node.children
                 if c.action == a
@@ -238,20 +247,7 @@ function play_against(agent::MuBetaZero, env::Environment;
             remove_children!(chosen_node.parent, except=chosen_node)
             expand!(chosen_node, env, player_adv)
 
-            tik = time()
-            best, = MCTreeSearch(agent, env, N_MCTS, player_adv)
-            tak = time()
-            n = 1
-            while tak - tik < thinktime
-                best, = MCTreeSearch(agent, env, N_MCTS, player_adv)
-                n += 1
-                tak = time()
-            end
-            a = best.action
-            agent.current_node = best
-            remove_children!(best.parent, except=best)
-            t = round((tak - tik) * 1000) / 1000
-            println("Did $(n * N_MCTS) simulations in $t s.)")
+            a = opponent_move(agent, env, player_adv, N_MCTS, thinktime)
         else
             a = action(agent, env, env.current, player_adv)
         end
@@ -272,20 +268,37 @@ function play_against(agent::MuBetaZero, env::Environment;
     print("Rematch?\n(Y or enter):")
     ans = readline()
     if ans in ["y", "Y", "yes", "Yes", ""]
-        play_against(agent, env, !start)
+        play_against(agent, env, start=!start, N_MCTS=N_MCTS, MCTS=MCTS, thinktime=thinktime)
     end
 end
 
-
+# working stuff
 
 env = TikTakToe()
 agent = MuBetaZeroTabular(env.n_states, env.n_actions)
 winners = train!(agent, env, 10^6)
 play_game!(agent, env, train=false, verbose=true)
 
-scatter(winners[end-1000: end])
+play_against(agent, env)
 
-play_against(agent, env, true)
+
+agentMCTS = MuBetaZeroTabular(env.n_states, env.n_actions)
+@time winners = train!(agentMCTS, env, 10^5, MCTS=true, N_MCTS=100, MCTS_type=:rollout)
+play_game!(agentMCTS, env, train=false, verbose=true)
+play_game!(agentMCTS, env, train=false, verbose=true, MCTS=true)
+
+play_against(agentMCTS, env, MCTS=false)
+
+
+
+agentMCTS = MuBetaZeroTabular(env.n_states, env.n_actions)
+@time winners = train!(agentMCTS, env, 10^5, MCTS=true, N_MCTS=100, MCTS_type=:value)
+play_game!(agentMCTS, env, train=false, verbose=true)
+play_game!(agentMCTS, env, train=false, verbose=true, MCTS=true)
+
+play_against(agentMCTS, env, MCTS=true)
+
+
 
 import Profile
 Profile.clear()
@@ -315,7 +328,7 @@ agent.current_node = root
 
 
 Random.seed!(1)
-best, v, ps, ps_trunc, scores = MCTreeSearch(agent, env, 1000, 1)
+best, v, ps, ps_trunc, scores = MCTreeSearch(agent, env, 100, 1, type=:value)
 # remove_children!(best.parent, except=best)
 agent.current_node = best
 step!(env, best.action, best.player)
@@ -328,11 +341,13 @@ play_game!(agent, env, train=false, verbose=true, MCTS=true)
 
 
 agentMCTS = MuBetaZeroTabular(env.n_states, env.n_actions)
-@time winners = train!(agentMCTS, env, 10^5, MCTS=true, N_MCTS=100)
+@time winners = train!(agentMCTS, env, 10^5, MCTS=true, N_MCTS=100, MCTS_type=:rollout)
 play_game!(agentMCTS, env, train=false, verbose=true)
 play_game!(agentMCTS, env, train=false, verbose=true, MCTS=true)
 
-play_against(agent, env, MCTS=false)
+play_against(agentMCTS, env, MCTS=false)
+
+
 
 using BenchmarkTools
 

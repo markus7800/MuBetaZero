@@ -74,9 +74,16 @@ function str_node(node::MCTSNode)
 end
 
 function print_node(node::MCTSNode, tab=""; frt::Function=str_node)
-    c = println(tab * frt(node))
+    println(tab * frt(node))
     for c in node.children
         print_node(c, tab * "\t", frt=frt)
+    end
+end
+
+function print_children(node::MCTSNode; frt::Function=str_node)
+    println(frt(node))
+    for c in node.children
+        println("\t", frt(c))
     end
 end
 

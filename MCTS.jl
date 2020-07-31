@@ -1,15 +1,9 @@
 # player for rewards independent of node.player
 # node.n = sum(node.children.n) + expand_at
-global DEBUG_MCTS = false
-function MCTreeSearch(μβ0::MuBetaZero, env::Environment, N::Int, player::Int; expand_at=1)
+global DEBUG_MCTS = true
+function MCTreeSearch(μβ0::MuBetaZero, env::Environment, N::Int, player::Int; expand_at=1, type=:rollout)
     state = copy(env.current)
-    # root = MCTSNode()
-    # tree = MCTSTree(root)
-    # expand!(root, env)
     root = μβ0.current_node
-    # if isempty(root.children)
-    #     expand!(root, env)
-    # end
     @assert !isempty(root.children)
     @assert player == root.children[1].player
 
@@ -18,28 +12,36 @@ function MCTreeSearch(μβ0::MuBetaZero, env::Environment, N::Int, player::Int; 
         if DEBUG_MCTS && n % 10 == 0
             print_tree(root)
         end
-        DEBUG_MCTS && println("=== n = $n ===")
+        DEBUG_MCTS && println("========== n = $n ==========")
         n += 1
         env.current .= state
         winner = 0
         DEBUG_MCTS && println("SELECT")
-        best, nextplayer, winner, done = select!(env, root) # best action already applied, foe is next player
+        best, nextplayer, winner, done = select!(env, root) # actions up to best action already applied
         if done
             DEBUG_MCTS && println("end node selected")
-        end
-        if !done
+            DEBUG_MCTS && println("BACKPROPAGATE winner: $winner")
+            backpropagate!(best, winner)
+        else
             if best.n ≥ expand_at
                 DEBUG_MCTS && println("EXPAND")
                 expand!(best, env, nextplayer)
-                N += 1 # allow one more rollout
+                N += 1 # allow one more rollout/update for child of best
                 continue
             else
-                DEBUG_MCTS && println("ROLLOUT")
-                winner = rollout!(μβ0, env, nextplayer)
+                if type == :rollout
+                    DEBUG_MCTS && println("ROLLOUT")
+                    winner = rollout!(μβ0, env, nextplayer)
+                    DEBUG_MCTS && println("BACKPROPAGATE winner: $winner")
+                    backpropagate!(best, winner)
+                elseif type == :value
+                    # env.current is state after best.action was applied
+                    val = value(μβ0, env, env.current, nextplayer)
+                    DEBUG_MCTS && println("BACKPROPAGATE value: $val")
+                    backpropagate!(best, -val)
+                end
             end
         end
-        DEBUG_MCTS && println("BACKPROPAGATE winner: $winner")
-        backpropagate!(best, winner)
     end
 
     env.current .= state
@@ -82,6 +84,7 @@ function select!(env::Environment, root::MCTSNode)
             break
         end
     end
+    DEBUG_MCTS && !done && println()
     DEBUG_MCTS && done && println("(winner: $winner)")
     return current, nextplayer, winner, done
 end
@@ -112,6 +115,16 @@ function backpropagate!(node::MCTSNode, winner::Int)
         if winner != 0
             current.w += Int(winner == current.player) * 2 - 1 # ∈ {-1, 1}
         end
+        current = current.parent
+    end
+end
+
+# value from perspective of node.player
+function backpropagate!(node::MCTSNode, value::Float32)
+    current = node
+    while current != nothing
+        current.n += 1
+        current.w += (Float32(node.player == current.player) * 2 - 1) * value # ∈ {-1, 1} * value
         current = current.parent
     end
 end
