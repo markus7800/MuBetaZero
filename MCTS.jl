@@ -64,7 +64,7 @@ function MCTreeSearch(μβ0::MuBetaZero, env::Environment, N::Int, player::Int; 
         end
     end
 
-    return best, v_mean(best), ps, ps_trunc
+    return best, v_mean(best), ps, ps_trunc, scores
 end
 
 function select!(env::Environment, root::MCTSNode)

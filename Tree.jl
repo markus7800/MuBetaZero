@@ -3,7 +3,7 @@ import Base.push!
 mutable struct MCTSNode
     parent::Union{MCTSNode, Nothing}
     children::Vector{MCTSNode}
-    w::Int # number of wins for player
+    w::Float32 # number of wins for player
     n::Int # number of sims
     action::Int
     player::Int
@@ -42,6 +42,11 @@ function remove_children!(node::MCTSNode; except::MCTSNode=nothing)
         node.children = []
     end
 end
+
+function v_mean(node::MCTSNode)::Float32
+    return node.w / node.n
+end
+
 
 function UCB1(node::MCTSNode)::Float64
     if node.n == 0
@@ -89,8 +94,4 @@ function print_tree(node::MCTSNode)
         return c * str_node(n) * c
     end
     print_node(root, frt=str_node_2)
-end
-
-function v_mean(node::MCTSNode)::Float32
-    return Float32(node.w) / node.n
 end

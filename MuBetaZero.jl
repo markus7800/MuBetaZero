@@ -57,7 +57,8 @@ function play!(μβ0::MuBetaZero, env::Environment,
     s = copy(env.current)
     Q_est = 0f0
     if MCTS
-        best_node, Q_est, ps, ps_trunc = MCTreeSearch(μβ0, env, N_MCTS, player) # nextstates already observed here
+        best_node, Q_est, ps, ps_trunc, Q_ests = MCTreeSearch(μβ0, env, N_MCTS, player) # nextstates already observed here
+        as = collect(valid_actions(env, s))
         if train
             chosen_node = sample(μβ0.current_node.children, Weights(ps_trunc))
         else
@@ -68,6 +69,8 @@ function play!(μβ0::MuBetaZero, env::Environment,
         winner, done, nextplayer = step!(env, a, player)
         μβ0.current_node = chosen_node
         remove_children!(chosen_node.parent, except=chosen_node)
+
+        return s, a, Q_est, winner, done, as, Q_ests, player, nextplayer
     else
         if train && rand() ≤ μβ0.ϵ
             a = rand(collect(valid_actions(env, s)))
@@ -96,9 +99,9 @@ function play!(μβ0::MuBetaZero, env::Environment,
             end
             env.current = ns
         end
-    end
 
-    return s, a, winner, done, Q_est, player, nextplayer
+        return s, a, Q_est, winner, done, [], [], player, nextplayer
+    end
 end
 
 function update!(μβ0::MuBetaZeroTabular, env::Environment, player::Int,
@@ -107,6 +110,13 @@ function update!(μβ0::MuBetaZeroTabular, env::Environment, player::Int,
     i = s_a_to_index(env, s, a, player)
     μβ0.visits[i] += 1
     μβ0.Q[i] = (1 - α) * μβ0.Q[i] + α * Q_est
+end
+
+function update!(μβ0::MuBetaZeroTabular, env::Environment, player::Int,
+                 s::Vector{Int}, as::Vector{Int}, Q_ests::Vector{Float32})
+    for (a, Q_est) in zip(as, Q_ests)
+        update!(μβ0, env, player, s, a, Q_est)
+    end
 end
 
 function reset_tree!(μβ0::MuBetaZero)
@@ -131,9 +141,13 @@ function play_game!(μβ0::MuBetaZeroTabular, env::Environment;
     player = 1
 
     while !done
-        s, a, winner, done, Q_est, player, nextplayer = play!(μβ0, env, player, train=train, MCTS=MCTS, N_MCTS=N_MCTS)
+        s, a, Q_est, winner, done, as, Q_ests, player, nextplayer = play!(μβ0, env, player, train=train, MCTS=MCTS, N_MCTS=N_MCTS)
         if train
-            update!(μβ0, env, player, s, a, Q_est)
+            if MCTS
+                update!(μβ0, env, player, s, as, Q_ests)
+            else
+                update!(μβ0, env, player, s, a, Q_est)
+            end
         end
         if verbose
             i = s_a_to_index(env, s, 0, player)
@@ -301,13 +315,14 @@ agent.current_node = root
 
 
 Random.seed!(1)
-best, v, ps, = MCTreeSearch(agent, env, 1000, 1)
+best, v, ps, ps_trunc, scores = MCTreeSearch(agent, env, 1000, 1)
 # remove_children!(best.parent, except=best)
 agent.current_node = best
 step!(env, best.action, best.player)
 println_current(env)
 
 print_tree(best)
+print_children(best.parent)
 
 play_game!(agent, env, train=false, verbose=true, MCTS=true)
 
@@ -317,7 +332,7 @@ agentMCTS = MuBetaZeroTabular(env.n_states, env.n_actions)
 play_game!(agentMCTS, env, train=false, verbose=true)
 play_game!(agentMCTS, env, train=false, verbose=true, MCTS=true)
 
-play_against(agent, env, MCTS=true)
+play_against(agent, env, MCTS=false)
 
 using BenchmarkTools
 
