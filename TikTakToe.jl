@@ -7,11 +7,13 @@ mutable struct TikTakToe <: Environment
     current::Vector{Int}
     n_states::Int
     n_actions::Int
+    actions::Vector{Int}
     function TikTakToe()
         this = new()
         this.current = fill(0, 9)
         this.n_states = 3^9
         this.n_actions = 9
+        this.actions = collect(1:9)
         return this
     end
 end

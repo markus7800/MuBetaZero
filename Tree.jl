@@ -52,13 +52,16 @@ function UCB1(node::MCTSNode)::Float64
 end
 
 function best_child(node::MCTSNode)
-    scores = map(UCB1, node.children)
+    # scores = map(UCB1, node.children)
     # if foe
     #     # best action for foe is our worst action (least wins)
     #     return node.children[argmax(-scores)]
     # else
-    return node.children[argmax(scores)]
+    # return node.children[argmax(scores)]
     # end
+
+    c, = maximise(UCB1, node.children)
+    return c
 end
 
 function str_node(node::MCTSNode)
