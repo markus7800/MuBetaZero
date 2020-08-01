@@ -17,6 +17,9 @@ mutable struct MuBetaZeroNeural <: MuBetaZero
     c::Float32 # regularisation parameter
     opt
 
+    tree::MCTSTree
+    current_node::MCTSNode
+
     function MuBetaZeroNeural(policy_network_layout::Chain, value_network_layout::Chain;
                               γ=1.0f0, opt=RMSProp(), ϵ=0.1, c=0.001f0)
         this = new()
@@ -31,7 +34,7 @@ mutable struct MuBetaZeroNeural <: MuBetaZero
     end
 end
 
-function flush_transition_buffer(μβ0::MuBetaZeroNeural)
+function flush_transition_buffer!(μβ0::MuBetaZeroNeural)
     μβ0.transition_buffer = [[], []]
 end
 
@@ -75,24 +78,27 @@ end
 function learn_transitions!(μβ0::MuBetaZeroNeural, env::Environment)
     ls = []
     for player in [1,2]
-        X = Array{Float32}(undef, size(env.current)..., length(μβ0.transition_buffer[player]))
-        Y_ps = Array{Float32}(undef, env.n_actions, length(μβ0.transition_buffer[player]))
-        Y_vs = Array{Float32}(undef, 1, length(μβ0.transition_buffer[player]))
-        for (i,t) in enumerate(μβ0.transition_buffer[player])
+        n_trans = length(μβ0.transition_buffer[player])
+        X = Array{Float32}(undef, size(env.current)..., n_trans)
+        Y_ps = Array{Float32}(undef, env.n_actions, n_trans)
+        Y_vs = Array{Float32}(undef, 1, n_trans)
+
+        is = sample(1:n_trans, n_trans, replace=false)
+        for (i,t) in zip(is, μβ0.transition_buffer[player])
             X[:,:,:,i] = t.s
             Y_ps[:,i] = t.ps
             Y_vs[1,i] = t.Q_est
         end
 
-        policy_loss_f = policy_loss(μβ0, env, μβ0.c)
-        value_loss_f = value_loss(μβ0, env, μβ0.c)
+        policy_loss_f = policy_loss(μβ0, player, μβ0.c)
+        value_loss_f = value_loss(μβ0, player, μβ0.c)
 
-        p_loss = policy_loss(X, Y_ps)
+        p_loss = policy_loss_f(X, Y_ps)
         v_loss = value_loss_f(X, Y_vs)
         push!(ls, (p_loss, v_loss))
 
-        Flux.Optimise.train!(policy_loss_f, params(μβ0.policy_network[player]), [(X,Y_ps)], μβ0.opt)
-        Flux.Optimise.train!(value_loss_f, params(μβ0.value_network[player]), [(X, Y_vs)], μβ0.opt)
+        Flux.Optimise.train!(policy_loss_f, params(μβ0.policy_networks[player]), [(X,Y_ps)], μβ0.opt)
+        Flux.Optimise.train!(value_loss_f, params(μβ0.value_networks[player]), [(X, Y_vs)], μβ0.opt)
     end
 
     return ls
@@ -110,8 +116,6 @@ function play_game!(μβ0::MuBetaZeroNeural, env::Environment;
     done = false
     player = 1
 
-    println_current(env)
-    println()
     while !done
         t, winner, done, nextplayer = play!(μβ0, env, player, train=train, MCTS=MCTS, N_MCTS=N_MCTS, MCTS_type=MCTS_type)
 
@@ -120,7 +124,7 @@ function play_game!(μβ0::MuBetaZeroNeural, env::Environment;
         end
 
         if verbose
-            println("Decision Stats: player: $player, Q_est: $(t.Q_est) vs Q: $(value(μβ0, env, t.s, player))")
+            println("Decision Stats: player: $player, action: $(t.a), Q_est: $(t.Q_est) vs Q: $(value(μβ0, env, t.s, player))")
             print_current(env)
             !done && println("State Stats: player: $nextplayer, Q = $(value(μβ0, env, env.current, nextplayer))")
             println()
@@ -130,6 +134,28 @@ function play_game!(μβ0::MuBetaZeroNeural, env::Environment;
     end
 
     return winner
+end
+
+function train!(μβ0::MuBetaZeroNeural, env::Environment,
+                n_games::Int=10^5, batchsize=10;
+                MCTS=false, N_MCTS=1000, MCTS_type=:rollout)
+
+    winners = zeros(Int, n_games)
+    p_loss_1 = []; v_loss_1 = []
+    p_loss_2 = []; v_loss_2 = []
+
+    ProgressMeter.@showprogress for n in 1:n_games
+        winners[n] = play_game!(μβ0, env, train=true, MCTS=MCTS, N_MCTS=N_MCTS, MCTS_type=MCTS_type)
+        if n % batchsize == 0
+            losses = learn_transitions!(μβ0, env)
+            flush_transition_buffer!(μβ0)
+
+            push!(p_loss_1, losses[1][1]); push!(v_loss_1, losses[1][2]);
+            push!(p_loss_2, losses[2][1]); push!(v_loss_2, losses[2][2]);
+        end
+    end
+
+    return winners, p_loss_1, v_loss_1, p_loss_2, v_loss_2
 end
 
 env = ConnectFour()
@@ -152,6 +178,14 @@ value_model = Chain(
 
 agent = MuBetaZeroNeural(policy_model, value_model)
 
-play_game!(agent, env, verbose=true, train=false)
+train!(agent, env, 10^5, 10, MCTS=true, N_MCTS=100)
+
+play_game!(agent, env, verbose=true, train=false, MCTS=true, N_MCTS=100)
+
+import BenchmarkTools
+
+BenchmarkTools.@btime play_game!(agent, env, verbose=false, train=false, MCTS=false, N_MCTS=100)
+
+play_against(agent, env)
 
 learn_transitions!(agent, env)

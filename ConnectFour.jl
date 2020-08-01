@@ -44,12 +44,20 @@ function valid_actions(env::ConnectFour)::Base.Iterators.Filter
     return valid_actions(env, env.current)
 end
 
+function is_valid(env::ConnectFour, action::Int)::Bool
+    return env.current[env.n_rows,action,1] == 0 && env.current[env.n_rows,action,2] == 0
+end
+
 function reset!(env::ConnectFour)
     env.current .= 0f0
 end
 
 function step!(env::ConnectFour, action::Int, player::Int)::Tuple{Int, Bool, Int}
     next_player = player == 1 ? 2 : 1
+
+    if !(is_valid(env, action))
+        action = rand(collect(valid_actions(env)))
+    end
 
     i = 0; j = action
     for l in 1:env.n_rows
@@ -140,6 +148,9 @@ function has_four(env::ConnectFour, indeces::StepRange, player::Int)
     count = 0
     offset = (player - 1) * env.n_rows*env.n_cols
     for (i, index) in  enumerate(indeces)
+        if index == 0
+            println(collect(indeces) .+ offset)
+        end
         if env.current[index + offset] == 1
             count += 1
             if count == 4

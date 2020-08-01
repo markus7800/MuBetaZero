@@ -106,7 +106,7 @@ function play_game!(μβ0::MuBetaZeroTabular, env::Environment;
 end
 
 function train!(μβ0::MuBetaZeroTabular, env::Environment,
-                n_games::Int=10^6, success_threshold::Float64=0.55;
+                n_games::Int=10^6;
                 MCTS=false, N_MCTS=1000, MCTS_type=:rollout)
 
     winners = zeros(Int, n_games)
