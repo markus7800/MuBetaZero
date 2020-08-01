@@ -14,10 +14,11 @@ mutable struct MuBetaZeroNeural <: MuBetaZero
     transition_buffer::Array{Vector{Transition}}
     γ::Float32
     ϵ::Float64
+    c::Float32 # regularisation parameter
     opt
 
     function MuBetaZeroNeural(policy_network_layout::Chain, value_network_layout::Chain;
-                              γ=1.0f0, opt=RMSProp(), ϵ=0.1)
+                              γ=1.0f0, opt=RMSProp(), ϵ=0.1, c=0.001f0)
         this = new()
         this.policy_networks = [deepcopy(policy_network_layout), deepcopy(policy_network_layout)]
         this.value_networks = [deepcopy(value_network_layout), deepcopy(value_network_layout)]
@@ -25,8 +26,20 @@ mutable struct MuBetaZeroNeural <: MuBetaZero
         this.γ = γ
         this.opt = opt
         this.ϵ = ϵ
+        this.c = c
         return this
     end
+end
+
+function flush_transition_buffer(μβ0::MuBetaZeroNeural)
+    μβ0.transition_buffer = [[], []]
+end
+
+function greedy_action(μβ0::MuBetaZeroNeural, env::Environment, state::Array{Float32}, player::Int)::Int
+    x = reshape(state, size(state)..., 1)
+    ps = μβ0.policy_networks[player](x)[:,1]
+    a = argmax(ps)
+    return a
 end
 
 function action(μβ0::MuBetaZeroNeural, env::Environment, state::Array{Float32}, player::Int)::Int
@@ -45,14 +58,14 @@ function L2(x)
     return sum(abs2, x)
 end
 
-function policy_loss(μβ0::MuBetaZeroNeural, player::Int, c::Float32=0.001)
+function policy_loss(μβ0::MuBetaZeroNeural, player::Int, c::Float32=0.001f0)
     m = μβ0.policy_networks[player]
     function loss(x,y)
         return Flux.crossentropy(m(x), y) + c * sum(L2, params(m))
     end
 end
 
-function value_loss(μβ0::MuBetaZeroNeural, player::Int, c::Float32=0.001)
+function value_loss(μβ0::MuBetaZeroNeural, player::Int, c::Float32=0.001f0)
     m = μβ0.value_networks[player]
     function loss(x,y)
         return Flux.mse(m(x), y) + c * sum(L2, params(m))
@@ -60,6 +73,7 @@ function value_loss(μβ0::MuBetaZeroNeural, player::Int, c::Float32=0.001)
 end
 
 function learn_transitions!(μβ0::MuBetaZeroNeural, env::Environment)
+    ls = []
     for player in [1,2]
         X = Array{Float32}(undef, size(env.current)..., length(μβ0.transition_buffer[player]))
         Y_ps = Array{Float32}(undef, env.n_actions, length(μβ0.transition_buffer[player]))
@@ -67,12 +81,21 @@ function learn_transitions!(μβ0::MuBetaZeroNeural, env::Environment)
         for (i,t) in enumerate(μβ0.transition_buffer[player])
             X[:,:,:,i] = t.s
             Y_ps[:,i] = t.ps
-            Y_vs = t.Q_est
+            Y_vs[1,i] = t.Q_est
         end
 
-        Flux.Optimise
+        policy_loss_f = policy_loss(μβ0, env, μβ0.c)
+        value_loss_f = value_loss(μβ0, env, μβ0.c)
+
+        p_loss = policy_loss(X, Y_ps)
+        v_loss = value_loss_f(X, Y_vs)
+        push!(ls, (p_loss, v_loss))
+
+        Flux.Optimise.train!(policy_loss_f, params(μβ0.policy_network[player]), [(X,Y_ps)], μβ0.opt)
+        Flux.Optimise.train!(value_loss_f, params(μβ0.value_network[player]), [(X, Y_vs)], μβ0.opt)
     end
 
+    return ls
 end
 
 
@@ -94,22 +117,12 @@ function play_game!(μβ0::MuBetaZeroNeural, env::Environment;
 
         if train
             push!(μβ0.transition_buffer[t.player], t)
-
-            # if MCTS
-            #     update!(μβ0, env, t.player, t.s, t.as, t.Q_ests)
-            # else
-            #     update!(μβ0, env, t.player, t.s, t.a, t.Q_est)
-            # end
         end
 
         if verbose
-            # i = s_a_to_index(env, t.s, 0, player)
-            # println("Decision Stats: player: $player, Q_est: $(t.Q_est) vs Q: $(value(μβ0, env, t.s, player)), visits: $(μβ0.visits[i+t.a])/$(sum(μβ0.visits[i+1:i+10]))")
-            # println("Q: ", μβ0.Q[i+1:i+10])
-            println("player: $(t.player), action: $(t.a), winner: $winner, done: $done")
+            println("Decision Stats: player: $player, Q_est: $(t.Q_est) vs Q: $(value(μβ0, env, t.s, player))")
             print_current(env)
-            # i = s_a_to_index(env, env.current, 0, nextplayer)
-            # !done && println("State Stats: player: $nextplayer, Q = $(value(μβ0, env, env.current, nextplayer))", ", visits: ", sum(μβ0.visits[i+1:i+10]))
+            !done && println("State Stats: player: $nextplayer, Q = $(value(μβ0, env, env.current, nextplayer))")
             println()
         end
 
@@ -140,3 +153,5 @@ value_model = Chain(
 agent = MuBetaZeroNeural(policy_model, value_model)
 
 play_game!(agent, env, verbose=true, train=false)
+
+learn_transitions!(agent, env)

@@ -68,8 +68,8 @@ model = Chain(
 X = rand(Float32, 6, 7, 2, 32)
 Y = Flux.softmax(rand(Float32, 7, 32))
 
-Xs = [X[:,:,:,i] for i in 1:size(X, 4)]
-Ys = [Y[:,i] for i in 1:size(Y, 4)]
+Xs = [reshape(X[:,:,:,i], 6, 7, 2, 1) for i in 1:size(X, 4)]
+Ys = [reshape(Y[:,i], 7, 1) for i in 1:size(Y, 4)]
 
 gradient(params(model)) do
     Flux.crossentropy(model(X), Y)
@@ -80,6 +80,12 @@ m = deepcopy(model)
 loss(x,y) = Flux.crossentropy(m(x), y)
 
 loss(X, Y)
+l = 0f0
+for (x, y) in zip(Xs, Ys)
+    global l += loss(x, y)
+end
+display(l)
+-sum(Y .* log.(m(X)) .* 1) / size(Y, 2)
 
 Flux.Optimise.train!(loss, params(m), [(X, Y)], RMSProp())
 

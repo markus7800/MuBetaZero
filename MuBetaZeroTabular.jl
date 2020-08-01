@@ -26,11 +26,19 @@ mutable struct MuBetaZeroTabular <: MuBetaZero
     end
 end
 
+function greedy_action(μβ0::MuBetaZeroTabular, env::Environment, state::Vector{Int}, player::Int)::Int
+    return action(μβ0, env, state, player)
+end
+
 function action(μβ0::MuBetaZeroTabular, env::Environment, state::Vector{Int}, player::Int)::Int
     i = s_a_to_index(env, state, 0, player)
     is = [i + j for j in 1:env.n_actions] # TODO: assertion
     a, Q = maximise(a -> μβ0.Q[is[a]], valid_actions(env, state))
     return a
+end
+
+function greedy_action(μβ0::MuBetaZeroTabular, env::Environment, state::Vector{Int}, player::Int)::Int
+    return action(μβ0, env, state, player)
 end
 
 function value(μβ0::MuBetaZeroTabular, env::Environment, state::Vector{Int}, action::Int, player::Int)::Float32

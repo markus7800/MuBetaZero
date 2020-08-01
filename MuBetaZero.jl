@@ -71,7 +71,10 @@ function play!(μβ0::MuBetaZero, env::Environment,
             env.current = ns
         end
 
-        return Transition(s, a, Q_est, player), winner, done, nextplayer
+        ps = zeros(Float32, env.n_actions)
+        ps[a] = 1 # one hot actions
+
+        return Transition(s, a, Q_est, player, Float32[], ps), winner, done, nextplayer
     end
 end
 
@@ -119,7 +122,7 @@ function play_against(agent::MuBetaZero, env::Environment;
         if MCTS
             a = opponent_move(agent, env, player_adv, N_MCTS, thinktime)
         else
-            a = action(agent, env, env.current, player_adv)
+            a = greedy_action(agent, env, env.current, player_adv)
         end
         step!(env, a, player_adv)
     end
@@ -153,7 +156,7 @@ function play_against(agent::MuBetaZero, env::Environment;
 
             a = opponent_move(agent, env, player_adv, N_MCTS, thinktime)
         else
-            a = action(agent, env, env.current, player_adv)
+            a = greedy_action(agent, env, env.current, player_adv)
         end
 
         winner, done = step!(env, a, player_adv)

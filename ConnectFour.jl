@@ -235,6 +235,6 @@ end
 # println_current(env)
 
 
-for i in 1:env.n_rows, j in 1:env.n_cols
-    won(env, i, j, 1)
-end
+# for i in 1:env.n_rows, j in 1:env.n_cols
+#     won(env, i, j, 1)
+# end
