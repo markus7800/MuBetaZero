@@ -52,6 +52,12 @@ function action(μβ0::MuBetaZeroNeural, env::Environment, state::Array{Float32}
     return a
 end
 
+function action_ps(μβ0::MuBetaZeroNeural, env::Environment, state::Array{Float32}, player::Int)::Vector{Float32}
+    x = reshape(state, size(state)..., 1)
+    ps = μβ0.policy_networks[player](x)[:,1]
+    return ps
+end
+
 function value(μβ0::MuBetaZeroNeural, env::Environment, state::Array{Float32}, player::Int)::Float32
     x = reshape(state, size(state)..., 1)
     return μβ0.value_networks[player](x)[1]
@@ -124,7 +130,9 @@ function play_game!(μβ0::MuBetaZeroNeural, env::Environment;
         end
 
         if verbose
-            println("Decision Stats: player: $player, action: $(t.a), Q_est: $(t.Q_est) vs Q: $(value(μβ0, env, t.s, player))")
+            println("Decision Stats: player: $(t.player), action: $(t.a), Q_est: $(t.Q_est) vs Q: $(value(μβ0, env, t.s, player))")
+            println(t.Q_ests)
+            println(action_ps(μβ0, env, t.s, t.player))
             print_current(env)
             !done && println("State Stats: player: $nextplayer, Q = $(value(μβ0, env, env.current, nextplayer))")
             println()
@@ -178,9 +186,21 @@ value_model = Chain(
 
 agent = MuBetaZeroNeural(policy_model, value_model)
 
-train!(agent, env, 10^5, 10, MCTS=false, N_MCTS=100, MCTS_type=:value)
+winners, p_loss_1, v_loss_1, p_loss_2, v_loss_2 = train!(agent, env, 10^5, 10, MCTS=true, N_MCTS=100, MCTS_type=:value)
 
-play_game!(agent, env, verbose=true, train=false, MCTS=true, N_MCTS=100)
+using Plots
+plot(p_loss_1)
+plot(v_loss_1)
+
+s = reshape(reset!(env), size(env.current)..., 1)
+ps = agent.policy_networks[1](s)
+bar(ps)
+
+m = agent.value_networks[2]
+BSON.@save "value_nn_2.bson" m
+
+Random.seed!(1)
+play_game!(agent, env, verbose=true, train=false, MCTS=true, N_MCTS=100, MCTS_type=:value)
 
 import BenchmarkTools
 

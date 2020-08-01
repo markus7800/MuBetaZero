@@ -16,7 +16,7 @@ end
 
 
 function print_current(env::ConnectFour)
-    symbols = ["0", "X", "O"]
+    symbols = ["⋅", "X", "O"]
     s = Int.(env.current[:,:,1] .+ 2 * env.current[:,:,2])
     board = map(i -> symbols[i+1], s)
     for i in env.n_rows:-1:1

@@ -101,7 +101,7 @@ function opponent_move(agent::MuBetaZero, env::Environment, player_adv::Int, N_M
     agent.current_node = best
     remove_children!(best.parent, except=best)
     t = round((tak - tik) * 1000) / 1000
-    println("(Did $(n * N_MCTS) simulations in $t s.)")
+    println("Computer says $a (Did $(n * N_MCTS) simulations in $t s).")
 
     return a
 end
@@ -136,6 +136,7 @@ function play_against(agent::MuBetaZero, env::Environment;
             print("\nInput valid action: ")
             a = parse(Int, readline())
         end
+        println()
         winner, done, = step!(env, a, player)
         if done
             break
@@ -172,7 +173,7 @@ function play_against(agent::MuBetaZero, env::Environment;
     end
     println()
 
-    print("Rematch?\n(Y or enter):")
+    print("Rematch?\n(Y or enter): ")
     ans = readline()
     if ans in ["y", "Y", "yes", "Yes", ""]
         play_against(agent, env, start=!start, N_MCTS=N_MCTS, MCTS=MCTS, thinktime=thinktime)
