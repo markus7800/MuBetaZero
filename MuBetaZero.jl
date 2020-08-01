@@ -9,17 +9,17 @@ abstract type MuBetaZero end
 
 include("MCTS.jl")
 
-struct Transition
-    s::Vector{Int}              # state
+struct Transition{T}
+    s::Array{T}                 # state
     a::Int                      # chosen action
     Q_est::Float32              # estimated value of selected action
     Q_ests::Vector{Float32}     # estimated values of valid actions
     ps::Vector{Float32}         # estimated probabilities for all actions
     player::Int                 # player selecting action a
 
-    function Transition(s::Vector{Int}, a::Int, Q_est::Float32, player::Int,
-                        Q_ests::Vector{Float32}=Float32[], ps::Vector{Float32}=Float32[])
-        return new(s, a, Q_est, Q_ests, ps, player)
+    function Transition(s::Array{T}, a::Int, Q_est::Float32, player::Int,
+                        Q_ests::Vector{Float32}=Float32[], ps::Vector{Float32}=Float32[]) where T <: Real
+        return new{T}(s, a, Q_est, Q_ests, ps, player)
     end
 end
 
