@@ -87,13 +87,13 @@ function reset_tree!(μβ0::MuBetaZero)
 end
 
 
-function opponent_move(agent::MuBetaZero, env::Environment, player_adv::Int, N_MCTS::Int, thinktime::Float64)
+function opponent_move(agent::MuBetaZero, env::Environment, player_adv::Int, N_MCTS::Int, MCTS_type::Symbol, thinktime::Float64)
     tik = time()
-    best, = MCTreeSearch(agent, env, N_MCTS, player_adv)
+    best, = MCTreeSearch(agent, env, N_MCTS, type=MCTS_type, player_adv)
     tak = time()
     n = 1
     while tak - tik < thinktime
-        best, = MCTreeSearch(agent, env, N_MCTS, player_adv)
+        best, = MCTreeSearch(agent, env, N_MCTS, player_adv, type=MCTS_type)
         n += 1
         tak = time()
     end
@@ -107,7 +107,7 @@ function opponent_move(agent::MuBetaZero, env::Environment, player_adv::Int, N_M
 end
 
 function play_against(agent::MuBetaZero, env::Environment;
-    start=true, MCTS=false, N_MCTS=1000, thinktime=0.5)
+    start=true, MCTS=false, N_MCTS=1000, MCTS_type=:rollout, thinktime=0.5)
     reset!(env)
     winner = 0
     done = false
@@ -120,7 +120,7 @@ function play_against(agent::MuBetaZero, env::Environment;
 
     if !start
         if MCTS
-            a = opponent_move(agent, env, player_adv, N_MCTS, thinktime)
+            a = opponent_move(agent, env, player_adv, N_MCTS, MCTS_type, thinktime)
         else
             a = greedy_action(agent, env, env.current, player_adv)
         end
@@ -154,7 +154,7 @@ function play_against(agent::MuBetaZero, env::Environment;
             remove_children!(chosen_node.parent, except=chosen_node)
             expand!(chosen_node, env, player_adv)
 
-            a = opponent_move(agent, env, player_adv, N_MCTS, thinktime)
+            a = opponent_move(agent, env, player_adv, N_MCTS, MCTS_type, thinktime)
         else
             a = greedy_action(agent, env, env.current, player_adv)
         end

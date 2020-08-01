@@ -178,14 +178,14 @@ value_model = Chain(
 
 agent = MuBetaZeroNeural(policy_model, value_model)
 
-train!(agent, env, 10^5, 10, MCTS=true, N_MCTS=100)
+train!(agent, env, 10^5, 10, MCTS=false, N_MCTS=100, MCTS_type=:value)
 
 play_game!(agent, env, verbose=true, train=false, MCTS=true, N_MCTS=100)
 
 import BenchmarkTools
 
-BenchmarkTools.@btime play_game!(agent, env, verbose=false, train=false, MCTS=false, N_MCTS=100)
+BenchmarkTools.@btime play_game!(agent, env, verbose=false, train=false, MCTS=false, N_MCTS=100, MCTS_type=:value)
 
-play_against(agent, env)
+play_against(agent, env, MCTS=true, MCTS_type=:value)
 
 learn_transitions!(agent, env)
