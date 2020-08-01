@@ -1,7 +1,6 @@
 
 import Base.display
 
-abstract type Environment end
 
 mutable struct TikTakToe <: Environment
     current::Vector{Int}

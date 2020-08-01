@@ -1,6 +1,6 @@
 # player for rewards independent of node.player
 # node.n = sum(node.children.n) + expand_at
-global DEBUG_MCTS = true
+global DEBUG_MCTS = false
 function MCTreeSearch(μβ0::MuBetaZero, env::Environment, N::Int, player::Int; expand_at=1, type=:rollout)
     state = copy(env.current)
     root = μβ0.current_node
