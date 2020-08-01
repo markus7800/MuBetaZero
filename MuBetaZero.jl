@@ -48,7 +48,6 @@ function play!(μβ0::MuBetaZero, env::Environment,
             a = rand(collect(valid_actions(env, s)))
         else
             a = action(μβ0, env, s, player) # greedy action
-            i = s_a_to_index(env, s, 0, player)
         end
         winner, done, nextplayer = step!(env, a, player)
 

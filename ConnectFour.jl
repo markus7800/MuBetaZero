@@ -1,7 +1,6 @@
 
 mutable struct ConnectFour <: Environment
     current::Array{Float32,3}
-    internal_state::Array{Int,2}
     n_actions::Int
     n_rows::Int
     n_cols::Int
@@ -10,7 +9,6 @@ mutable struct ConnectFour <: Environment
         this.n_rows = 6
         this.n_cols = 7
         this.current = fill(0f0, 6, 7, 2)
-        this.internal_state = fill(0, 6, 7)
         this.n_actions = 7
         return this
     end
@@ -19,7 +17,8 @@ end
 
 function print_current(env::ConnectFour)
     symbols = ["0", "X", "O"]
-    board = map(i -> symbols[i+1], env.internal_state)
+    s = Int.(env.current[:,:,1] .+ 2 * env.current[:,:,2])
+    board = map(i -> symbols[i+1], s)
     for i in env.n_rows:-1:1
         for j in 1:env.n_cols
             print(board[i,j], " ")
@@ -33,35 +32,34 @@ function println_current(env::ConnectFour)
     println()
 end
 
-function valid_actions(env::ConnectFour, state::Array{Int,2})::Base.Iterators.Filter
-    return Base.Iterators.filter(a -> state[env.n_rows,a] == 0, 1:env.n_actions)
-end
+# function valid_actions(env::ConnectFour, state::Array{Int,2})::Base.Iterators.Filter
+#     return Base.Iterators.filter(a -> state[env.n_rows,a] == 0, 1:env.n_actions)
+# end
 
 function valid_actions(env::ConnectFour, state::Array{Float32,3})::Base.Iterators.Filter
     return Base.Iterators.filter(a -> state[env.n_rows,a,1] == 0 && state[env.n_rows,a,2] == 0, 1:env.n_actions)
 end
 
 function valid_actions(env::ConnectFour)::Base.Iterators.Filter
-    return valid_actions(env, env.internal_state)
+    return valid_actions(env, env.current)
 end
 
 function reset!(env::ConnectFour)
     env.current .= 0f0
-    env.internal_state .= 0
 end
 
 function step!(env::ConnectFour, action::Int, player::Int)::Tuple{Int, Bool, Int}
+    next_player = player == 1 ? 2 : 1
+
     i = 0; j = action
     for l in 1:env.n_rows
-        if env.internal_state[l,action] == 0
-            env.internal_state[l,action] = player
+        if env.current[l,action,:] == [0,0]
             env.current[l,action,player] = 1
             i = l
             break
         end
     end
 
-    next_player = player == 1 ? 2 : 1
 
     w = won(env, i, j, player)
     if w
@@ -102,60 +100,47 @@ function won(env::ConnectFour, i::Int, j::Int, player::Int)
     diag1 = TL:env.n_rows+1:BR
     diag2 = BL:env.n_rows-1:TR
 
-    if has_four(env.internal_state, col, player)
+    if has_four(env, col, player)
         return true
-    elseif has_four(env.internal_state, row, player)
+    elseif has_four(env, row, player)
         return true
-    elseif has_four(env.internal_state, diag1, player)
+    elseif has_four(env, diag1, player)
         return true
-    elseif has_four(env.internal_state, diag2, player)
+    elseif has_four(env, diag2, player)
         return true
     else
         return false
     end
-    # if has_four(view(env.current, col), player)
-    #     return true
-    # elseif has_four(view(env.current, row), player)
-    #     return true
-    # elseif has_four(view(env.current, diag1), player)
-    #     return true
-    # elseif has_four(view(env.current, diag2), player)
-    #     return true
-    # else
-    #     return false
-    # end
 end
 
-# function has_four(A::Array{Int,2}, a::Int)
-#     l = length(A)
-#     if l < 4
-#         return false
-#     end
-#     count = 0
-#     for (i,b) in enumerate(A)
-#         if b == a
-#             count += 1
-#             if count == 4
-#                 return true
-#             end
-#         else
-#             count = 0
-#             if l - i < 4
-#                 return false
-#             end
-#         end
-#     end
-#     return false
-# end
 
-function has_four(A::Array{Int,2}, indeces::StepRange, a::Int)
+# println("i :$i, j: $j")
+# board = zeros(Int, env.n_rows, env.n_cols)
+# for i in col
+#     board[i] = 1
+# end
+# for i in row
+#     board[i] = 2
+#
+# end
+# for i in diag1
+#     board[i] = 3
+# end
+# for i in diag2
+#     board[i] = 4
+# end
+# board[index(env, i, j)] = 5
+# display(board)
+
+function has_four(env::ConnectFour, indeces::StepRange, player::Int)
     l = length(indeces)
     if l < 4
         return false
     end
     count = 0
+    offset = (player - 1) * env.n_rows*env.n_cols
     for (i, index) in  enumerate(indeces)
-        if A[index] == a
+        if env.current[index + offset] == 1
             count += 1
             if count == 4
                 return true
@@ -226,25 +211,30 @@ end
 #
 # reset!(env)
 # println_current(env)
-# step!(env, 4, 1)
-# println_current(env)
-# step!(env, 5, 2)
+# step!(env, 4, 2)
 # println_current(env)
 # step!(env, 5, 1)
 # println_current(env)
+# step!(env, 5, 2)
+# println_current(env)
+# step!(env, 6, 1)
+# println_current(env)
 # step!(env, 6, 2)
 # println_current(env)
-# step!(env, 6, 1)
+# step!(env, 7, 1)
 # println_current(env)
-# step!(env, 7, 2)
-# println_current(env)
-# step!(env, 6, 1)
-# println_current(env)
-# step!(env, 7, 2)
+# step!(env, 6, 2)
 # println_current(env)
 # step!(env, 7, 1)
 # println_current(env)
-# step!(env, 1, 2)
+# step!(env, 7, 2)
 # println_current(env)
-# step!(env, 7, 1)
+# step!(env, 1, 1)
 # println_current(env)
+# step!(env, 7, 2)
+# println_current(env)
+
+
+for i in 1:env.n_rows, j in 1:env.n_cols
+    won(env, i, j, 1)
+end
