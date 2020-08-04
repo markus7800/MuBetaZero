@@ -43,6 +43,17 @@ function remove_children!(node::MCTSNode; except::MCTSNode=nothing)
     end
 end
 
+function remove_childrens_children!(node::MCTSNode; except::MCTSNode=nothing)
+    for child in node.children
+        if child != except
+            for childchild in child.children
+                childchild.parent = nothing
+            end
+            child.children = []
+        end
+    end
+end
+
 function v_mean(node::MCTSNode)::Float32
     return node.w / node.n
 end

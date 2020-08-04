@@ -80,7 +80,7 @@ end
 
 
 function reset_tree!(μβ0::MuBetaZero)
-    root = MCTSNode(0)
+    root = MCTSNode(1)
     expand!(root, env, 1)
     μβ0.tree = MCTSTree(root)
     μβ0.current_node = root
@@ -99,6 +99,7 @@ function opponent_move(agent::MuBetaZero, env::Environment, player_adv::Int, N_M
     end
     a = best.action
     agent.current_node = best
+    print_children(best.parent)
     remove_children!(best.parent, except=best)
     t = round((tak - tik) * 1000) / 1000
     println("Computer says $a (Did $(n * N_MCTS) simulations in $t s).")
@@ -153,7 +154,9 @@ function play_against(agent::MuBetaZero, env::Environment;
             end
             agent.current_node = chosen_node
             remove_children!(chosen_node.parent, except=chosen_node)
-            expand!(chosen_node, env, player_adv)
+            if isempty(chosen_node.children)
+                expand!(chosen_node, env, player_adv)
+            end
 
             a = opponent_move(agent, env, player_adv, N_MCTS, MCTS_type, thinktime)
         else

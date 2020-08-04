@@ -45,11 +45,17 @@ function greedy_action(μβ0::MuBetaZeroNeural, env::Environment, state::Array{F
     return a
 end
 
+const DISREGARD_NETWORKS = true
+
 function action(μβ0::MuBetaZeroNeural, env::Environment, state::Array{Float32}, player::Int)::Int
-    x = reshape(state, size(state)..., 1)
-    ps = μβ0.policy_networks[player](x)[:,1]
-    a = sample(1:env.n_actions, Weights(ps))
-    return a
+    if DISREGARD_NETWORKS
+        return sample(1:env.n_actions)
+    else
+        x = reshape(state, size(state)..., 1)
+        ps = μβ0.policy_networks[player](x)[:,1]
+        a = sample(1:env.n_actions, Weights(ps))
+        return a
+    end
 end
 
 function action_ps(μβ0::MuBetaZeroNeural, env::Environment, state::Array{Float32}, player::Int)::Vector{Float32}
@@ -59,8 +65,12 @@ function action_ps(μβ0::MuBetaZeroNeural, env::Environment, state::Array{Float
 end
 
 function value(μβ0::MuBetaZeroNeural, env::Environment, state::Array{Float32}, player::Int)::Float32
-    x = reshape(state, size(state)..., 1)
-    return μβ0.value_networks[player](x)[1]
+    if DISREGARD_NETWORKS
+        return 0f0
+    else
+        x = reshape(state, size(state)..., 1)
+        return μβ0.value_networks[player](x)[1]
+    end
 end
 
 function L2(x)
@@ -130,8 +140,9 @@ function play_game!(μβ0::MuBetaZeroNeural, env::Environment;
         end
 
         if verbose
-            println("Decision Stats: player: $(t.player), action: $(t.a), Q_est: $(t.Q_est) vs Q: $(value(μβ0, env, t.s, player))")
-            println(t.Q_ests)
+            l = value_loss(μβ0, t.player)(reshape(t.s, size(t.s)... ,1), reshape([t.Q_est],1,1))
+            println("Decision Stats: player: $(t.player), action: $(t.a), Q_est: $(t.Q_est) vs Q: $(value(μβ0, env, t.s, player)), loss: $l")
+            println(t.ps)
             println(action_ps(μβ0, env, t.s, t.player))
             print_current(env)
             !done && println("State Stats: player: $nextplayer, Q = $(value(μβ0, env, env.current, nextplayer))")
@@ -186,7 +197,7 @@ value_model = Chain(
 
 agent = MuBetaZeroNeural(policy_model, value_model)
 
-winners, p_loss_1, v_loss_1, p_loss_2, v_loss_2 = train!(agent, env, 10^5, 10, MCTS=true, N_MCTS=100, MCTS_type=:value)
+winners, p_loss_1, v_loss_1, p_loss_2, v_loss_2 = train!(agent, env, 1000, 10, MCTS=true, N_MCTS=100, MCTS_type=:value)
 
 using Plots
 plot(p_loss_1)
@@ -206,6 +217,31 @@ import BenchmarkTools
 
 BenchmarkTools.@btime play_game!(agent, env, verbose=false, train=false, MCTS=false, N_MCTS=100, MCTS_type=:value)
 
-play_against(agent, env, MCTS=true, MCTS_type=:value)
+play_against(agent, env, MCTS=true, N_MCTS=1000, MCTS_type=:value, thinktime=0.5)
 
 learn_transitions!(agent, env)
+
+t = rand(agent.transition_buffer[1])
+
+value_loss(agent, t.player)(reshape(t.s, size(t.s)..., 1), reshape([t.Q_est], 1, 1))
+
+
+reset!(env)
+reset_tree!(agent)
+@time MCTreeSearch(agent, env, 10^7, 1)
+
+
+
+reset!(env)
+step!(env, 3, 1)
+println_current(env)
+step!(env, 3, 2)
+println_current(env)
+
+s = copy(env.current)
+
+sum(s[:,:,2])
+
+agent.current_node = MCTSNode(0)
+expand!(agent.current_node, env, 2)
+MCTreeSearch(agent, env, 1000, 2)
