@@ -31,7 +31,7 @@ function s_a_to_index(env::Environment, state::Vector{Int}, action::Int, player:
 end
 
 function print_current(env::TikTakToe)
-    symbols = ["0", "X", "O"]
+    symbols = ["⋅", "X", "O"]
     board = map(i -> symbols[i+1], env.current)
     for i in 1:3 # col
         for j in 1:3 # row

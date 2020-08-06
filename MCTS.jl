@@ -37,6 +37,7 @@ function MCTreeSearch(μβ0::MuBetaZero, env::Environment, N::Int, player::Int; 
                 elseif type == :value
                     # env.current is state after best.action was applied
                     val = value(μβ0, env, env.current, nextplayer)
+                    @assert !isnan(val)
                     DEBUG_MCTS && println("BACKPROPAGATE value: $val")
                     backpropagate!(best, -val)
                 end

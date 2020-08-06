@@ -37,9 +37,9 @@ function action(μβ0::MuBetaZeroTabular, env::Environment, state::Vector{Int}, 
     return a
 end
 
-function greedy_action(μβ0::MuBetaZeroTabular, env::Environment, state::Vector{Int}, player::Int)::Int
-    return action(μβ0, env, state, player)
-end
+# function greedy_action(μβ0::MuBetaZeroTabular, env::Environment, state::Vector{Int}, player::Int)::Int
+#     return action(μβ0, env, state, player)
+# end
 
 function value(μβ0::MuBetaZeroTabular, env::Environment, state::Vector{Int}, action::Int, player::Int)::Float32
     i = s_a_to_index(env, state, action, player)

@@ -48,17 +48,11 @@ function greedy_action(μβ0::MuBetaZeroNeural, env::Environment, state::Array{F
     return a
 end
 
-const DISREGARD_NETWORKS = false
-
 function action(μβ0::MuBetaZeroNeural, env::Environment, state::Array{Float32}, player::Int)::Int
-    if DISREGARD_NETWORKS
-        return sample(1:env.n_actions)
-    else
-        x = reshape(state, size(state)..., 1)
-        ps = μβ0.policy_networks[player](x)[:,1]
-        a = sample(1:env.n_actions, Weights(ps))
-        return a
-    end
+    x = reshape(state, size(state)..., 1)
+    ps = μβ0.policy_networks[player](x)[:,1]
+    a = sample(1:env.n_actions, Weights(ps))
+    return a
 end
 
 function action_ps(μβ0::MuBetaZeroNeural, env::Environment, state::Array{Float32}, player::Int)::Vector{Float32}
@@ -68,12 +62,8 @@ function action_ps(μβ0::MuBetaZeroNeural, env::Environment, state::Array{Float
 end
 
 function value(μβ0::MuBetaZeroNeural, env::Environment, state::Array{Float32}, player::Int)::Float32
-    if DISREGARD_NETWORKS
-        return 0f0
-    else
-        x = reshape(state, size(state)..., 1)
-        return μβ0.value_networks[player](x)[1]
-    end
+    x = reshape(state, size(state)..., 1)
+    return μβ0.value_networks[player](x)[1]
 end
 
 function L2(x)
@@ -94,27 +84,27 @@ function value_loss(μβ0::MuBetaZeroNeural, player::Int, c::Float32=0.001f0)
     end
 end
 
-function learn_transitions!(μβ0::MuBetaZeroNeural, env::Environment, n_trans::Int, batchsize::Int; gpu=true)
-    ls = [[],[]]
+function learn_transitions!(μβ0::MuBetaZeroNeural, env::Environment, n_trans::Int, batchsize::Int; gpu_enabled=true)
+    ls = (0f0, 0f0)
 
-    if gpu
+    if gpu_enabled
         μβ0.value_networks = gpu.(μβ0.value_networks)
     end
 
     for player in [1,2]
         @assert n_trans > batchsize
-        @assert length(μβ0.transition_buffer[player]) > n_trans
 
         X = Array{Float32}(undef, size(env.current)..., n_trans)
         Y_vs = Array{Float32}(undef, 1, n_trans)
 
-        is = sample(1:length(μβ0.transition_buffer[player]), n_trans, replace=false)
+        L = length(μβ0.transition_buffer[player])
+        is = sample(1:L, min(n_trans,L), replace=false)
         for (i,t) in enumerate(μβ0.transition_buffer[player][is])
             X[:,:,:,i] = t.s
             Y_vs[1,i] = t.Q_est
         end
 
-        if gpu
+        if gpu_enabled
             X = gpu(X)
             Y_vs = gpu(Y_vs)
         end
@@ -122,7 +112,7 @@ function learn_transitions!(μβ0::MuBetaZeroNeural, env::Environment, n_trans::
         data = Flux.Data.DataLoader((X, Y_vs))
 
         value_loss_f = value_loss(μβ0, player, μβ0.c)
-
+        ls[player] = value_loss_f
 
         Flux.Optimise.train!(value_loss_f, params(μβ0.value_networks[player]), data, μβ0.opt)
 
@@ -132,7 +122,7 @@ function learn_transitions!(μβ0::MuBetaZeroNeural, env::Environment, n_trans::
         println("player $player, loss: $v_loss")
     end
 
-    if gpu
+    if gpu_enabled
         μβ0.value_networks = cpu.(μβ0.value_networks)
     end
 
@@ -176,24 +166,25 @@ end
 
 function train!(μβ0::MuBetaZeroNeural, env::Environment;
                 n_games::Int=10^5, batchsize=128, buffersize=10^5, n_trans=10^4, learn_interval=10^4,
-                MCTS=true, N_MCTS=100, MCTS_type=:value, gpu=true)
+                MCTS=true, N_MCTS=100, MCTS_type=:value, gpu_enabled=true)
 
     println("Begin training:")
     println("Number of games: $n_games")
     println("batchsize: $batchsize, number of transitions per epoch: $n_trans")
     println("Learning every $learn_interval games")
     println("MCTS: $MCTS with $N_MCTS evaluations of $MCTS_type type")
-    println("GPU ", gpu ? "enabled" : "disabled")
+    println("GPU ", gpu_enabled ? "enabled" : "disabled")
 
     winners = zeros(Int, n_games)
-    v_losses = []
+    v_losses = [[], []]
 
     ProgressMeter.@showprogress for n in 1:n_games
         winners[n] = play_game!(μβ0, env, train=true, MCTS=MCTS, N_MCTS=N_MCTS, MCTS_type=MCTS_type)
 
         if n % learn_interval == 0
-           ls = learn_transitions!(μβ0, env, n_trans, batchsize, gpu=gpu)
-           push!(v_losses, ls)
+           ls = learn_transitions!(μβ0, env, n_trans, batchsize, gpu_enabled=gpu_enabled)
+           push!(v_losses[1], ls[1])
+           push!(v_losses[2], ls[2])
         end
 
         L = minimum(length.(μβ0.transition_buffer))
@@ -229,12 +220,20 @@ value_model = Chain(
 )
 
 agent = MuBetaZeroNeural(policy_model, value_model)
+Random.seed!(1)
+winners, v_losses = train!(agent, env, n_games=10^4, n_trans=10^4, learn_interval=10^3)
 
-winners, p_loss_1, v_loss_1, p_loss_2, v_loss_2 = train!(agent, env, 1000, 10, MCTS=true, N_MCTS=100, MCTS_type=:value)
+for (i, t) in enumerate(agent.transition_buffer[2])
+    if isnan(t.Q_est)
+        println("$i is nan, ")
+    end
+end
 
 using Plots
-plot(p_loss_1)
-plot(v_loss_1)
+plot(v_losses[1])
+
+
+
 
 s = reshape(reset!(env), size(env.current)..., 1)
 ps = agent.policy_networks[1](s)

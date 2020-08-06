@@ -79,9 +79,9 @@ function play!(μβ0::MuBetaZero, env::Environment,
 end
 
 
-function reset_tree!(μβ0::MuBetaZero)
-    root = MCTSNode(1)
-    expand!(root, env, 1)
+function reset_tree!(μβ0::MuBetaZero, player=1)
+    root = MCTSNode(player)
+    expand!(root, env, player)
     μβ0.tree = MCTSTree(root)
     μβ0.current_node = root
 end
