@@ -40,8 +40,8 @@ using BenchmarkTools
 1000 * 42 * 24 * 10^-6
 mapreduce(length, +, params(model))
 
-X = rand(Float32, 6, 7, 2, 32)
-Y = Flux.softmax(rand(Float32, 7, 32))
+X = rand(Float32, 6, 7, 2, 1024)
+Y = Flux.softmax(rand(Float32, 7, 1024))
 V = rand(1, 32)
 @btime
 
@@ -65,8 +65,8 @@ model = Chain(
     Dense(48, 7),
     Flux.softmax
 )
-X = rand(Float32, 6, 7, 2, 32)
-Y = Flux.softmax(rand(Float32, 7, 32))
+X = rand(Float32, 6, 7, 2, 1024)
+Y = Flux.softmax(rand(Float32, 7, 1024))
 
 Xs = [reshape(X[:,:,:,i], 6, 7, 2, 1) for i in 1:size(X, 4)]
 Ys = [reshape(Y[:,i], 7, 1) for i in 1:size(Y, 4)]
@@ -98,3 +98,23 @@ for d in dl
 end
 
 sum(L2, params(m))
+
+m = gpu(model)
+
+@btime cpu(m(gpu(X))) # 372.400 μs 1024
+
+@btime for x in Xs
+    m(gpu(x))
+end # 316.811 ms 1024 LOL
+
+maximum(m(gpu(Xs[1]))[1, :])
+
+
+m2 = deepcopy(model)
+
+@btime m2(X) # 2.337 ms 1024
+
+@btime for x in Xs
+    m2(x)
+end # 28.415 ms
+m2()

@@ -4,7 +4,10 @@ include("ConnectFour.jl")
 using Random
 using Flux
 using StatsBase
+using Random
 
+using CUDA
+CUDA.allowscalar(false)
 
 mutable struct MuBetaZeroNeural <: MuBetaZero
 
@@ -45,7 +48,7 @@ function greedy_action(μβ0::MuBetaZeroNeural, env::Environment, state::Array{F
     return a
 end
 
-const DISREGARD_NETWORKS = true
+const DISREGARD_NETWORKS = false
 
 function action(μβ0::MuBetaZeroNeural, env::Environment, state::Array{Float32}, player::Int)::Int
     if DISREGARD_NETWORKS
@@ -91,30 +94,46 @@ function value_loss(μβ0::MuBetaZeroNeural, player::Int, c::Float32=0.001f0)
     end
 end
 
-function learn_transitions!(μβ0::MuBetaZeroNeural, env::Environment)
-    ls = []
+function learn_transitions!(μβ0::MuBetaZeroNeural, env::Environment, n_trans::Int, batchsize::Int; gpu=true)
+    ls = [[],[]]
+
+    if gpu
+        μβ0.value_networks = gpu.(μβ0.value_networks)
+    end
+
     for player in [1,2]
-        n_trans = length(μβ0.transition_buffer[player])
+        @assert n_trans > batchsize
+        @assert length(μβ0.transition_buffer[player]) > n_trans
+
         X = Array{Float32}(undef, size(env.current)..., n_trans)
-        Y_ps = Array{Float32}(undef, env.n_actions, n_trans)
         Y_vs = Array{Float32}(undef, 1, n_trans)
 
-        is = sample(1:n_trans, n_trans, replace=false)
-        for (i,t) in zip(is, μβ0.transition_buffer[player])
+        is = sample(1:length(μβ0.transition_buffer[player]), n_trans, replace=false)
+        for (i,t) in enumerate(μβ0.transition_buffer[player][is])
             X[:,:,:,i] = t.s
-            Y_ps[:,i] = t.ps
             Y_vs[1,i] = t.Q_est
         end
 
-        policy_loss_f = policy_loss(μβ0, player, μβ0.c)
+        if gpu
+            X = gpu(X)
+            Y_vs = gpu(Y_vs)
+        end
+
+        data = Flux.Data.DataLoader((X, Y_vs))
+
         value_loss_f = value_loss(μβ0, player, μβ0.c)
 
-        p_loss = policy_loss_f(X, Y_ps)
-        v_loss = value_loss_f(X, Y_vs)
-        push!(ls, (p_loss, v_loss))
 
-        Flux.Optimise.train!(policy_loss_f, params(μβ0.policy_networks[player]), [(X,Y_ps)], μβ0.opt)
-        Flux.Optimise.train!(value_loss_f, params(μβ0.value_networks[player]), [(X, Y_vs)], μβ0.opt)
+        Flux.Optimise.train!(value_loss_f, params(μβ0.value_networks[player]), data, μβ0.opt)
+
+        v_loss = value_loss_f(X, Y_vs)
+        push!(ls[player], v_loss)
+
+        println("player $player, loss: $v_loss")
+    end
+
+    if gpu
+        μβ0.value_networks = cpu.(μβ0.value_networks)
     end
 
     return ls
@@ -155,26 +174,40 @@ function play_game!(μβ0::MuBetaZeroNeural, env::Environment;
     return winner
 end
 
-function train!(μβ0::MuBetaZeroNeural, env::Environment,
-                n_games::Int=10^5, batchsize=10;
-                MCTS=false, N_MCTS=1000, MCTS_type=:rollout)
+function train!(μβ0::MuBetaZeroNeural, env::Environment;
+                n_games::Int=10^5, batchsize=128, buffersize=10^5, n_trans=10^4, learn_interval=10^4,
+                MCTS=true, N_MCTS=100, MCTS_type=:value, gpu=true)
+
+    println("Begin training:")
+    println("Number of games: $n_games")
+    println("batchsize: $batchsize, number of transitions per epoch: $n_trans")
+    println("Learning every $learn_interval games")
+    println("MCTS: $MCTS with $N_MCTS evaluations of $MCTS_type type")
+    println("GPU ", gpu ? "enabled" : "disabled")
 
     winners = zeros(Int, n_games)
-    p_loss_1 = []; v_loss_1 = []
-    p_loss_2 = []; v_loss_2 = []
+    v_losses = []
 
     ProgressMeter.@showprogress for n in 1:n_games
         winners[n] = play_game!(μβ0, env, train=true, MCTS=MCTS, N_MCTS=N_MCTS, MCTS_type=MCTS_type)
-        if n % batchsize == 0
-            losses = learn_transitions!(μβ0, env)
-            flush_transition_buffer!(μβ0)
 
-            push!(p_loss_1, losses[1][1]); push!(v_loss_1, losses[1][2]);
-            push!(p_loss_2, losses[2][1]); push!(v_loss_2, losses[2][2]);
+        if n % learn_interval == 0
+           ls = learn_transitions!(μβ0, env, n_trans, batchsize, gpu=gpu)
+           push!(v_losses, ls)
+        end
+
+        L = minimum(length.(μβ0.transition_buffer))
+        if L > buffersize
+            println("Buffer full: $L")
+            is = sample(1:L, L - L÷5, replace=false) # remove 25%
+            μβ0.transition_buffer[1] = μβ0.transition_buffer[1][is]
+            μβ0.transition_buffer[2] = μβ0.transition_buffer[2][is]
+            L = minimum(length.(μβ0.transition_buffer))
+            println("Buffer now: $L")
         end
     end
 
-    return winners, p_loss_1, v_loss_1, p_loss_2, v_loss_2
+    return winners, v_losses
 end
 
 env = ConnectFour()
@@ -245,3 +278,75 @@ sum(s[:,:,2])
 agent.current_node = MCTSNode(0)
 expand!(agent.current_node, env, 2)
 MCTreeSearch(agent, env, 1000, 2)
+
+s = gpu(reshape(env.current, size(env.current)..., 1))
+
+agent.value_networks[1](s)
+
+agent.value_networks[1](reshape(env.current, size(env.current)..., 1))
+
+value(agent, env, env.current, 1)
+
+
+
+reset_tree!(agent)
+flush_transition_buffer!(agent)
+
+ProgressMeter.@showprogress for n in 1:10^4
+    play_game!(agent, env, train=true, MCTS=true, N_MCTS=100, MCTS_type=:value)
+end
+
+length(agent.transition_buffer[1])
+
+@time learn_transitions!(agent, env, 25)
+
+agent.opt = ADAM()
+
+Random.seed!(1)
+value_model2 = Chain(
+    Conv((3,3), 2 => 32, relu), # (4,5,32,:)
+    Conv((2,2), 32 => 32, relu), # (3,4,32,:)
+    Flux.flatten, # (384,:)
+    Dense(384, 162, relu),
+    Dense(162, 81, relu),
+    Dense(81, 1)
+)
+
+agent2 = MuBetaZeroNeural(policy_model, value_model2)
+
+train!(agent2, env)
+
+
+@time learn_transitions!(agent2, env, 10^4, 128, gpu=false)
+
+value_model2(rand(Float32, 6, 7, 2, 1))
+
+X = rand(Float32, 6,7,2, 128)
+
+@btime value_model(X)
+
+m = gpu(value_model)
+
+@btime m( X |> gpu)
+
+Y = X |> gpu
+
+@btime m(Y)
+
+
+cpu_times = []
+gpu_times = []
+m = gpu(value_model2)
+
+@progress for b in [2^i for i in 1:10]
+    X = rand(Float32, 6,7,2, b)
+    v,t, = @timed value_model2(X)
+    push!(cpu_times,t)
+    v,t, = @timed m(X |> gpu)
+    push!(gpu_times, t)
+end
+
+using Plots
+
+plot(cpu_times, label="cpu", yaxis=:log)
+plot!(gpu_times, label="gpu")
